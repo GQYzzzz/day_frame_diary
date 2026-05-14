@@ -1,16 +1,19 @@
 # DayFrame 前端（Web）
 
-Next.js（App Router）+ TypeScript + Tailwind。当前 MVP：本地 mock 文案、`sessionStorage` 传数据、浏览器内导出 PNG。
+Next.js（App Router）+ TypeScript + Tailwind。上传走 **FastAPI**；mock 文案、`sessionStorage`、浏览器内导出 PNG。
 
 ## 本地运行
 
+需**同时**启动后端（见 `../backend/README.md`）与本前端。
+
 ```bash
 cd frontend
+cp .env.local.example .env.local   # 可按需改 API 地址
 npm install
 npm run dev
 ```
 
-浏览器打开终端里提示的地址（一般为 [http://localhost:3000](http://localhost:3000)）。
+`next.config.ts` 将 **`/api/uploads/*`** 代理到后端 **`/uploads/*`**，与 `localhost:3000` 同源，便于预览与导出。
 
 其他常用命令：`npm run build`（生产构建）、`npm run lint`（ESLint）。
 
@@ -26,7 +29,7 @@ npm run dev
 | `globals.css` | 全局样式：Tailwind 入口、浅色/深色下的 CSS 变量。 |
 | `page.tsx` | 路由 `/`：产品介绍与跳转到上传、历史。 |
 | `upload/page.tsx` | 路由 `/upload`：页面说明与嵌入 `UploadForm`；可在此写 `metadata`。 |
-| `upload/upload-form.tsx` | 客户端上传表单：选图（1–9）、选风格；提交时将图片读成 Data URL，写入 mock 文案与 `sessionStorage`，再跳转 `/result`。 |
+| `upload/upload-form.tsx` | 客户端上传表单：选图（1–9）、选风格；提交时 `multipart` 调用后端 `POST /api/v1/images/upload`，用返回的 **`/api/uploads/...` 地址** 写入 mock 与会话，再跳转 `/result`。 |
 | `result/page.tsx` | 路由 `/result`：`metadata` + 渲染 `ResultPageClient`（避免在服务端组件里使用 `dynamic(..., { ssr: false })`）。 |
 | `result/result-page-client.tsx` | 客户端壳：用 `next/dynamic` 关闭 SSR 懒加载 `ResultView`，带加载占位。 |
 | `result/result-view.tsx` | 结果页主体：读取会话；无数据时引导去上传；有数据时展示模板预览（仅白卡外包一层固定高度、内部纵向滚动）、侧栏编辑、导出 PNG。 |
@@ -37,12 +40,13 @@ npm run dev
 | 文件 | 作用 |
 |------|------|
 | `site-header.tsx` | 顶栏：品牌链到首页，导航「新建」「历史」。 |
-| `templates/vertical-diary-template.tsx` | 竖版长图模板（`forwardRef`）：按风格换背景；用原生 `<img>` 显示 Data URL 照片；根节点 `ref` 供截图导出。 |
+| `templates/vertical-diary-template.tsx` | 竖版长图模板（`forwardRef`）：按风格换背景；用原生 `<img>` 显示 **Data URL 或同源 `/api/uploads/...` URL**；根节点 `ref` 供截图导出。 |
 
 ### `src/lib/`（逻辑与契约）
 
 | 文件 | 作用 |
 |------|------|
+| `api.ts` | `getApiBase()`：读取 `NEXT_PUBLIC_API_BASE`（默认 `http://127.0.0.1:8000`），供上传等 `fetch`。 |
 | `types.ts` | TypeScript 类型与常量：风格枚举、会话结构 `DayFrameSessionV1`、文案结构 `DayFrameCopy`、默认模板 id 等。 |
 | `session.ts` | `sessionStorage` 读写：保存/读取/清除当前编辑会话。 |
 | `mock-copy.ts` | 按风格与照片数量生成假文案，模拟未来 AI 返回结构。 |
@@ -53,14 +57,14 @@ npm run dev
 | 文件 | 作用 |
 |------|------|
 | `package.json` | 依赖与 npm 脚本。 |
-| `next.config.ts` | Next.js 配置入口。 |
+| `next.config.ts` | Next 配置：**`rewrites`** 将 `/api/uploads/:path*` 转到后端静态路径，便于 `<img src="/api/uploads/...">` 同源加载。 |
 | `tsconfig.json` | TypeScript 与 `@/*` 路径别名。 |
 | `eslint.config.mjs` | ESLint 规则。 |
 | `postcss.config.mjs` | PostCSS（接 Tailwind）。 |
 
 ### 数据流（一句话）
 
-`upload-form.tsx` 写入会话 → `result-view.tsx` 读出 → `vertical-diary-template.tsx` 排版 → `export-card.ts` 导出图片。
+`upload-form.tsx` → 后端上传 → 会话中的图片 URL → `result-view.tsx` → `vertical-diary-template.tsx` → `export-card.ts` 导出图片。
 
 ---
 

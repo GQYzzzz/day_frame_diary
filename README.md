@@ -5,7 +5,8 @@
 ## 当前状态
 
 - **文档与目录**：产品与架构说明见 `docs/`。
-- **前端**：`frontend/` 已初始化 Next.js（Web），包含首页、上传、预览导出、历史占位；文案为本地 mock，支持浏览器内导出 PNG。后端仍为占位。
+- **前端**：`frontend/` Next.js：上传页会调用后端上传接口；结果页 mock 文案与导出 PNG；`/api/uploads/*` 由 Next 代理到后端静态文件。
+- **后端**：`backend/` FastAPI：健康检查、`POST /api/v1/images/upload`、本机 `uploads/` 存文件与读取。详见 `backend/README.md`。
 
 ## 文档导航
 

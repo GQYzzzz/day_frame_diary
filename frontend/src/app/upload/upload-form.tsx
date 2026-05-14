@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { getApiBase } from "@/lib/api";
 import { buildMockCopy } from "@/lib/mock-copy";
 import { saveDayFrameSession } from "@/lib/session";
 import {
@@ -11,13 +12,20 @@ import {
   type StyleId,
 } from "@/lib/types";
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+function formatUploadError(body: unknown): string {
+  if (!body || typeof body !== "object") return "上传失败，请稍后重试。";
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) =>
+        typeof d === "object" && d && "msg" in d
+          ? String((d as { msg: string }).msg)
+          : JSON.stringify(d),
+      )
+      .join("；");
+  }
+  return "上传失败，请稍后重试。";
 }
 
 export function UploadForm() {
@@ -40,7 +48,23 @@ export function UploadForm() {
     }
     setBusy(true);
     try {
-      const photos = await Promise.all(files.map((f) => readFileAsDataUrl(f)));
+      const formData = new FormData();
+      for (const f of files) {
+        formData.append("files", f);
+      }
+      const res = await fetch(`${getApiBase()}/api/v1/images/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const body: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(formatUploadError(body));
+      }
+      const items = (body as { items?: { url: string }[] }).items;
+      if (!items?.length) {
+        throw new Error("服务器未返回图片地址。");
+      }
+      const photos = items.map((i) => i.url);
       const copy = buildMockCopy(styleId, photos.length);
       saveDayFrameSession({
         version: 1,
@@ -51,8 +75,12 @@ export function UploadForm() {
         createdAt: Date.now(),
       });
       router.push("/result");
-    } catch {
-      setError("读取图片失败，请换一张图或稍后再试。");
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "上传失败，请确认后端已启动（见 backend/README）。",
+      );
     } finally {
       setBusy(false);
     }
@@ -72,7 +100,7 @@ export function UploadForm() {
           className="block w-full cursor-pointer text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-zinc-800 dark:text-zinc-300 dark:file:bg-zinc-100 dark:file:text-zinc-900 dark:hover:file:bg-zinc-200"
         />
         <p className="text-xs text-zinc-500">
-          已选择 {files.length} 张 · 当前为演示流程，文案由本地 mock 生成；后续会接入 AI。
+          已选择 {files.length} 张 · 图片会上传到本地 FastAPI；文案仍为 mock，后续接 AI。
         </p>
       </div>
 
