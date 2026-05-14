@@ -29,7 +29,7 @@ npm run dev
 | `upload/upload-form.tsx` | 客户端上传表单：选图（1–9）、选风格；提交时将图片读成 Data URL，写入 mock 文案与 `sessionStorage`，再跳转 `/result`。 |
 | `result/page.tsx` | 路由 `/result`：`metadata` + 渲染 `ResultPageClient`（避免在服务端组件里使用 `dynamic(..., { ssr: false })`）。 |
 | `result/result-page-client.tsx` | 客户端壳：用 `next/dynamic` 关闭 SSR 懒加载 `ResultView`，带加载占位。 |
-| `result/result-view.tsx` | 结果页主体：读取会话；无数据时引导去上传；有数据时展示模板预览、侧栏编辑、导出 PNG。 |
+| `result/result-view.tsx` | 结果页主体：读取会话；无数据时引导去上传；有数据时展示模板预览（仅白卡外包一层固定高度、内部纵向滚动）、侧栏编辑、导出 PNG。 |
 | `history/page.tsx` | 路由 `/history`：历史功能占位说明（后续接登录与后端）。 |
 
 ### `src/components/`（可复用 UI）

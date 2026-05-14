@@ -47,7 +47,7 @@ export const VerticalDiaryTemplate = forwardRef<HTMLDivElement, Props>(
               <img
                 src={src}
                 alt={`照片 ${index + 1}`}
-                className="aspect-[4/5] w-full rounded-2xl object-cover shadow-inner ring-1 ring-black/5"
+                className="h-auto w-full rounded-2xl bg-zinc-100/30 object-contain shadow-inner ring-1 ring-black/5"
                 draggable={false}
               />
               <figcaption className="text-[13px] leading-relaxed text-zinc-600">

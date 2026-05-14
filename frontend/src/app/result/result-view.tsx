@@ -108,13 +108,18 @@ export function ResultView() {
       ) : null}
 
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start">
-        <div className="flex justify-center lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:overflow-auto lg:pb-8">
-          <VerticalDiaryTemplate
-            ref={cardRef}
-            copy={copy}
-            photos={session.photos}
-            styleId={session.styleId}
-          />
+        <div className="flex justify-center lg:self-start">
+          <div
+            className="w-[390px] shrink-0 max-h-[min(72dvh,calc(100dvh-14rem))] overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] lg:max-h-[calc(100dvh-7rem)]"
+            aria-label="排版预览，可在区域内上下滑动"
+          >
+            <VerticalDiaryTemplate
+              ref={cardRef}
+              copy={copy}
+              photos={session.photos}
+              styleId={session.styleId}
+            />
+          </div>
         </div>
 
         <div className="min-w-0 flex-1 space-y-5">
