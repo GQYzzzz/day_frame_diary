@@ -1,13 +1,16 @@
-# Prompts（占位）
+# Prompts
 
-与业务代码分离，专门存放 **Vision / 文案生成** 的系统提示、风格预设、输出格式说明。
+与业务代码分离，存放 **文案生成** 等系统提示与风格说明。
 
-## 将来放置内容
+## 当前文件
 
-- 每张图结构化输出的格式约束（JSON schema 描述）
-- 按风格区分的 few-shot 或指令片段
-- 版本变更记录（可选：`CHANGELOG`）
+| 文件 | 用途 |
+|------|------|
+| `generate_copy_system.md` | **gpt-4o-mini** 多模态生成：看图 + 输出 `title` / `diary` / `captions` / `hashtags` 的 JSON 约束与风格说明 |
 
-## 本目录当前状态
+后端从仓库根路径读取：`prompts/generate_copy_system.md`（相对 `backend/app/` 上两级目录）。
 
-暂无具体 `.md` / `.yaml` 文件；待接入模型后再逐步添加。
+## 将来可扩展
+
+- 分步 Vision 结构化 JSON 的专用提示
+- 按风格拆分的片段与版本记录

@@ -1,6 +1,6 @@
 # DayFrame 前端（Web）
 
-Next.js（App Router）+ TypeScript + Tailwind。上传走 **FastAPI**；mock 文案、`sessionStorage`、浏览器内导出 PNG。
+Next.js（App Router）+ TypeScript + Tailwind。上传走 **FastAPI** 生成文案；**`sessionStorage`** 保存当前编辑会话；**`localStorage`** 保存历史作品列表；浏览器内导出 PNG。
 
 ## 本地运行
 
@@ -29,11 +29,12 @@ npm run dev
 | `globals.css` | 全局样式：Tailwind 入口、浅色/深色下的 CSS 变量。 |
 | `page.tsx` | 路由 `/`：产品介绍与跳转到上传、历史。 |
 | `upload/page.tsx` | 路由 `/upload`：页面说明与嵌入 `UploadForm`；可在此写 `metadata`。 |
-| `upload/upload-form.tsx` | 客户端上传表单：选图（1–9）、选风格；提交时 `multipart` 调用后端 `POST /api/v1/images/upload`，用返回的 **`/api/uploads/...` 地址** 写入 mock 与会话，再跳转 `/result`。 |
+| `upload/upload-form.tsx` | 选图（1–9）、选风格；先 `POST /api/v1/images/upload`，再 `POST /api/v1/generate`；写入 `sessionStorage` 并异步写入 `localStorage` 历史（见下文），跳转 `/result`。 |
 | `result/page.tsx` | 路由 `/result`：`metadata` + 渲染 `ResultPageClient`（避免在服务端组件里使用 `dynamic(..., { ssr: false })`）。 |
 | `result/result-page-client.tsx` | 客户端壳：用 `next/dynamic` 关闭 SSR 懒加载 `ResultView`，带加载占位。 |
-| `result/result-view.tsx` | 结果页主体：读取会话；无数据时引导去上传；有数据时展示模板预览（仅白卡外包一层固定高度、内部纵向滚动）、侧栏编辑、导出 PNG。 |
-| `history/page.tsx` | 路由 `/history`：历史功能占位说明（后续接登录与后端）。 |
+| `result/result-view.tsx` | 结果页主体：读取会话；编辑文案时同步 `sessionStorage` 与当前历史条目的文案；模板预览、导出 PNG。 |
+| `history/page.tsx` | 路由 `/history`：服务端壳 + `metadata`。 |
+| `history/history-view.tsx` | 历史列表：缩略图、标题、风格、时间；打开编辑、单条删除、清空全部。 |
 
 ### `src/components/`（可复用 UI）
 
@@ -46,10 +47,12 @@ npm run dev
 
 | 文件 | 作用 |
 |------|------|
-| `api.ts` | `getApiBase()`：读取 `NEXT_PUBLIC_API_BASE`（默认 `http://127.0.0.1:8000`），供上传等 `fetch`。 |
+| `api.ts` | `getApiBase()`：读取 `NEXT_PUBLIC_API_BASE`（默认 `http://127.0.0.1:8000`）。 |
+| `api-client.ts` | 上传、生成文案、健康检查等 `fetch` 封装与超时。 |
 | `types.ts` | TypeScript 类型与常量：风格枚举、会话结构 `DayFrameSessionV1`、文案结构 `DayFrameCopy`、默认模板 id 等。 |
-| `session.ts` | `sessionStorage` 读写：保存/读取/清除当前编辑会话。 |
-| `mock-copy.ts` | 按风格与照片数量生成假文案，模拟未来 AI 返回结构。 |
+| `session.ts` | **`sessionStorage`**：当前编辑会话的保存/读取/清除（见下文）。 |
+| `history.ts` | **`localStorage`**：历史作品列表的增删改查、打开到会话、容量与条数策略（见下文）。 |
+| `mock-copy.ts` | 按风格生成假文案（开发/离线用；正式流程走后端 generate）。 |
 | `export-card.ts` | 封装 `html-to-image`：将指定 DOM 节点导出为 PNG 并触发下载。 |
 
 ### 根目录配置（与构建相关）
@@ -64,7 +67,58 @@ npm run dev
 
 ### 数据流（一句话）
 
-`upload-form.tsx` → 后端上传 → 会话中的图片 URL → `result-view.tsx` → `vertical-diary-template.tsx` → `export-card.ts` 导出图片。
+`upload-form.tsx` → 后端上传 → 后端生成文案 → `sessionStorage` 会话 + `localStorage` 历史 → `result-view.tsx`（改字同步两处）→ `vertical-diary-template.tsx` → `export-card.ts` 导出图片；`/history` 可从历史重新载入会话并进入 `/result`。
+
+---
+
+## 浏览器存储（会话与历史）
+
+前端用两层存储，职责不同：
+
+| 存储 | 键名 | 内容 | 生命周期 |
+|------|------|------|----------|
+| `sessionStorage` | `dayframe:session:v1` | 当前这一稿：`photos`、`copy`、`styleId`、`templateId`、`createdAt` | **关闭标签页即丢失** |
+| `sessionStorage` | `dayframe:history:current-id` | 当前编辑对应的历史条目 id（用于结果页改字回写） | 同上 |
+| `localStorage` | `dayframe:history:v1` | 历史作品数组 `HistoryEntryV1[]`（最多 **30** 条） | **关浏览器不丢**（同域名、未清站点数据时） |
+
+实现见 `src/lib/session.ts`、`src/lib/history.ts`。
+
+### 何时写入历史
+
+1. **上传并生成成功**（`upload-form.tsx`）：先 `saveDayFrameSession`，再 `addHistoryFromSession`。
+2. 保存历史时会把 `/api/uploads/...` 图片 **fetch 后转为 data URL** 再写入，避免仅依赖后端 `uploads/` 目录（后端重启或清目录后仍可从历史打开）。
+3. **结果页编辑文案**（`result-view.tsx`）：若存在 `dayframe:history:current-id`，会 `updateCurrentHistoryCopy` 同步该条的 `copy` 与 `savedAt`。
+4. 历史写入失败（例如容量满）**不会阻断**进入 `/result` 预览。
+
+### 何时会清空或减少历史
+
+**整库清空（列表变为空）**
+
+- 用户在 `/history` 点击 **「清空全部」** 并确认 → `clearAllHistory()` 删除 `dayframe:history:v1`，并清除 `dayframe:history:current-id`。
+- 用户在浏览器或系统中 **清除本站数据**（Cookie / 网站数据 / Application → Clear storage）。
+- **无痕/隐私模式**：关闭该模式下的所有窗口后，该会话的 `localStorage` 会消失。
+- **换源访问**：例如 `http://localhost:3000` 与 `http://127.0.0.1:3000` 的 `localStorage` 互不相通；换浏览器、换设备亦无历史。
+
+**不会整库清空的情况**
+
+- 仅关闭标签页或浏览器（普通模式）。
+- 后端重启或删除 `backend/uploads/` 文件（历史内已存 data URL 时一般仍可打开）。
+- 再次上传新建作品（会 **新增** 一条历史，不会删掉旧列表）。
+
+**只删部分条目**
+
+- 用户在 `/history` 对某条点 **「删除」** → 只移除该 id；若删的是当前 `current-id`，会清空 `dayframe:history:current-id`（不影响其余历史）。
+- **超过 30 条**：新作品保存时只保留最新的 30 条，更早的自动丢弃（不是清空全部）。
+- **写入 `localStorage` 抛错**（常见为配额约 5MB 已满）：`addHistoryFromSession` 会尝试将条数减半后再写一次；若仍失败，**本次可能未写入历史**，已有条目通常仍在。结果页 `updateCurrentHistoryCopy` 失败时 **静默跳过**，不删已有数据。
+
+### 从历史打开作品
+
+`/history` → **「打开编辑」** → `openHistoryEntry(id)`：把该条写入 `sessionStorage` 会话并设置 `current-id` → 跳转 `/result`。
+
+### 限制与后续
+
+- 历史仅存于 **本机浏览器**，无账号同步；清除站点数据即不可恢复。
+- 多张大图 data URL 易触达 `localStorage` 上限；需要跨设备或更大容量时可改为 IndexedDB / 后端对象存储（见根目录 `docs/` 产品规划）。
 
 ---
 

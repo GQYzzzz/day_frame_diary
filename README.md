@@ -5,8 +5,8 @@
 ## 当前状态
 
 - **文档与目录**：产品与架构说明见 `docs/`。
-- **前端**：`frontend/` Next.js：上传页会调用后端上传接口；结果页 mock 文案与导出 PNG；`/api/uploads/*` 由 Next 代理到后端静态文件。
-- **后端**：`backend/` FastAPI：健康检查、`POST /api/v1/images/upload`、本机 `uploads/` 存文件与读取。详见 `backend/README.md`。
+- **前端**：`frontend/` Next.js：上传后调后端 **生成文案**；结果页编辑与导出 PNG；**历史作品**存本机 `localStorage`（会话为 `sessionStorage`，机制见 `frontend/README.md`）；`/api/uploads/*` 代理到后端。
+- **后端**：`backend/` FastAPI：上传、`POST /api/v1/generate`（**OpenAI gpt-4o-mini**，读 `prompts/generate_copy_system.md`）、本机 `uploads/`。需配置 `OPENAI_API_KEY`，见 `backend/.env.example`。
 
 ## 文档导航
 

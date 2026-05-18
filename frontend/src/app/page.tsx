@@ -13,7 +13,7 @@ export default function Home() {
         Web 版 AI 图文日记：上传照片、选择风格与模板，生成文案并自动排版，导出高清长图，便于朋友圈、小红书等平台分享。
       </p>
       <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-        当前为 MVP：文案使用本地 mock，导出在浏览器内完成；后续将接入后端与真实模型。
+        上传照片后由 AI 生成文案，在浏览器内预览排版并导出高清长图。使用前请启动本地后端服务。
       </p>
       <div className="mt-10 flex flex-col gap-3 sm:flex-row">
         <Link

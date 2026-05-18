@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import { exportElementToPng } from "@/lib/export-card";
-import { loadDayFrameSession } from "@/lib/session";
+import { updateCurrentHistoryCopy } from "@/lib/history";
+import { loadDayFrameSession, saveDayFrameSession } from "@/lib/session";
 import { STYLE_PRESETS } from "@/lib/types";
 import type { DayFrameCopy, DayFrameSessionV1 } from "@/lib/types";
 
@@ -24,6 +25,13 @@ export function ResultView() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!session || !copy) return;
+    const next = { ...session, copy };
+    saveDayFrameSession(next);
+    updateCurrentHistoryCopy(copy);
+  }, [session, copy]);
+
   if (!session || !copy) {
     return (
       <div className="mx-auto max-w-lg px-4 py-24 text-center">
@@ -31,7 +39,7 @@ export function ResultView() {
           还没有可预览的内容
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
-          请先在「上传」页选择照片并生成预览；本页从浏览器会话中读取数据（刷新后仍在同一会话内）。
+          请先在「上传」页选择照片并生成预览；生成成功后才会进入本页。
         </p>
         <Link
           href="/upload"
