@@ -7,7 +7,7 @@ const copy: Record<Phase, { title: string; hint: string }> = {
   },
   generating: {
     title: "AI 正在识图并写文案…",
-    hint: "多图或第三方网关较慢时可能需要 3～6 分钟，请勿关闭页面。",
+    hint: "通常约 30 秒～2 分钟；第三方网关较慢时可能更久，请勿关闭页面。",
   },
 };
 

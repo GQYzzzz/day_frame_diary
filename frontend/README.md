@@ -29,12 +29,15 @@ npm run dev
 | `globals.css` | 全局样式：Tailwind 入口、浅色/深色下的 CSS 变量。 |
 | `page.tsx` | 路由 `/`：产品介绍与跳转到上传、历史。 |
 | `upload/page.tsx` | 路由 `/upload`：页面说明与嵌入 `UploadForm`；可在此写 `metadata`。 |
-| `upload/upload-form.tsx` | 选图（1–9）、选风格；先 `POST /api/v1/images/upload`，再 `POST /api/v1/generate`；写入 `sessionStorage` 并异步写入 `localStorage` 历史（见下文），跳转 `/result`。 |
+| `upload/upload-form.tsx` | 选图、选风格、**选排版模板**（竖版长图 / 波点拼贴）；上传 + 生成文案后按所选模板写入会话并跳转 `/result`。 |
 | `result/page.tsx` | 路由 `/result`：`metadata` + 渲染 `ResultPageClient`（避免在服务端组件里使用 `dynamic(..., { ssr: false })`）。 |
 | `result/result-page-client.tsx` | 客户端壳：用 `next/dynamic` 关闭 SSR 懒加载 `ResultView`，带加载占位。 |
-| `result/result-view.tsx` | 结果页主体：读取会话；编辑文案时同步 `sessionStorage` 与当前历史条目的文案；模板预览、导出 PNG。 |
+| `result/result-view.tsx` | 结果页：展示上传时选定的模板、波点可「重新排版」、编辑文案、导出 PNG。 |
 | `history/page.tsx` | 路由 `/history`：服务端壳 + `metadata`。 |
 | `history/history-view.tsx` | 历史列表：缩略图、标题、风格、时间；打开编辑、单条删除、清空全部。 |
+| `templates/scrapbook/polka-scrapbook-template.tsx` | **波点拼贴**模版：调用布局引擎，错位摆图 + 气泡穿插。 |
+| `lib/templates/layout/compute-scrapbook-layout.ts` | 1～9 张图的拼贴布局引擎（种子随机、碰撞、日记切段）。 |
+| `lib/templates/registry.tsx` | 模版注册表与 `templateId` 切换。 |
 
 ### `src/components/`（可复用 UI）
 
@@ -67,9 +70,17 @@ npm run dev
 
 ### 数据流（一句话）
 
-`upload-form.tsx` → 后端上传 → 后端生成文案 → `sessionStorage` 会话 + `localStorage` 历史 → `result-view.tsx`（改字同步两处）→ `vertical-diary-template.tsx` → `export-card.ts` 导出图片；`/history` 可从历史重新载入会话并进入 `/result`。
+`upload-form.tsx` → 后端上传 → 后端生成文案 → `sessionStorage` 会话 + `localStorage` 历史 → `result-view.tsx`（改字同步两处）→ 按 `templateId` 渲染模版 → `export-card.ts` 导出图片；`/history` 可从历史重新载入会话并进入 `/result`。
+
+### 波点拼贴模版（`polka-scrapbook-v1`）
+
+- 默认模版；支持 **1～9 张** 图：引擎按张数缩放尺寸、之字形锚点 + 随机偏移/旋转，轻微叠压。
+- 文案：`title` 顶栏气泡；每张图 `captions[i]`；`diary` 切段后在摆图过程中穿插；`hashtags` 底部。
+- **重新排版**：换 `layoutSeed` 重算坐标（同一条作品可多种排法）。
+- 画布高度随内容变长；导出背景为波点灰 `#d4d0cb`。
 
 ---
+
 
 ## 浏览器存储（会话与历史）
 
@@ -86,7 +97,7 @@ npm run dev
 ### 何时写入历史
 
 1. **上传并生成成功**（`upload-form.tsx`）：先 `saveDayFrameSession`，再 `addHistoryFromSession`。
-2. 保存历史时会把 `/api/uploads/...` 图片 **fetch 后转为 data URL** 再写入，避免仅依赖后端 `uploads/` 目录（后端重启或清目录后仍可从历史打开）。
+2. 保存历史时在**后台**把 `/api/uploads/...` 转为 data URL 再写入（不阻塞进入结果页），避免仅依赖后端 `uploads/` 目录。
 3. **结果页编辑文案**（`result-view.tsx`）：若存在 `dayframe:history:current-id`，会 `updateCurrentHistoryCopy` 同步该条的 `copy` 与 `savedAt`。
 4. 历史写入失败（例如容量满）**不会阻断**进入 `/result` 预览。
 

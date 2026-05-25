@@ -19,6 +19,7 @@ type Props = {
   copy: DayFrameCopy;
   photos: string[];
   styleId: StyleId;
+  layoutSeed?: number;
 };
 
 export const VerticalDiaryTemplate = forwardRef<HTMLDivElement, Props>(

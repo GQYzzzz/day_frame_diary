@@ -14,7 +14,9 @@ import { saveDayFrameSession } from "@/lib/session";
 import {
   DEFAULT_TEMPLATE_ID,
   STYLE_PRESETS,
+  TEMPLATE_PRESETS,
   type StyleId,
+  type TemplateId,
 } from "@/lib/types";
 
 type BusyPhase = "uploading" | "generating" | null;
@@ -22,6 +24,7 @@ type BusyPhase = "uploading" | "generating" | null;
 export function UploadForm() {
   const router = useRouter();
   const [styleId, setStyleId] = useState<StyleId>("moments");
+  const [templateId, setTemplateId] = useState<TemplateId>(DEFAULT_TEMPLATE_ID);
   const [files, setFiles] = useState<File[]>([]);
   const [phase, setPhase] = useState<BusyPhase>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,17 +64,15 @@ export function UploadForm() {
       const session = {
         version: 1 as const,
         styleId,
-        templateId: DEFAULT_TEMPLATE_ID,
+        templateId,
         photos,
         copy,
         createdAt: Date.now(),
       };
       saveDayFrameSession(session);
-      try {
-        await addHistoryFromSession(session);
-      } catch {
-        /* 历史保存失败不阻断进入预览 */
-      }
+      // 历史需把每张图转成 data URL 再写 localStorage，可能耗时数分钟；
+      // 勿阻塞「生成」遮罩，否则会让人以为模型还在跑。
+      void addHistoryFromSession(session).catch(() => {});
       router.push("/result");
     } catch (e) {
       setError(
@@ -144,10 +145,29 @@ export function UploadForm() {
 
         <div className="space-y-2">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
-            模板
+            排版模板
           </p>
-          <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300">
-            竖版长图（MVP 固定一种）。
+          <div className="flex flex-wrap gap-2">
+            {TEMPLATE_PRESETS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                disabled={busy}
+                onClick={() => setTemplateId(t.id)}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                  templateId === t.id
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs leading-relaxed text-zinc-500">
+            {templateId === "vertical-v1"
+              ? "竖版长图：标题 + 正文 + 照片纵向排列，生成与保存较快，适合日常长图。"
+              : "波点拼贴：左上 / 右下对角摆图 + 气泡穿插，仅生成这一种版式（保存历史时会内嵌图片，稍慢一些）。"}
           </p>
         </div>
 

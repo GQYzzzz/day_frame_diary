@@ -1,5 +1,12 @@
-import type { DayFrameCopy, DayFrameSessionV1, StyleId } from "@/lib/types";
+import { normalizeTemplateId } from "@/lib/templates/registry";
 import { saveDayFrameSession } from "@/lib/session";
+import {
+  templateNeedsEmbeddedPhotos,
+  type DayFrameCopy,
+  type DayFrameSessionV1,
+  type StyleId,
+  type TemplateId,
+} from "@/lib/types";
 
 export const HISTORY_STORAGE_KEY = "dayframe:history:v1";
 export const HISTORY_CURRENT_ID_KEY = "dayframe:history:current-id";
@@ -90,11 +97,13 @@ export function setCurrentHistoryId(id: string | null): void {
   }
 }
 
-/** 新建一条历史（照片会转为 data URL 存入 localStorage，便于之后打开） */
+/** 新建一条历史（波点拼贴会内嵌照片；竖版长图仅保存 URL，写入更快） */
 export async function addHistoryFromSession(
   session: DayFrameSessionV1,
 ): Promise<string> {
-  const photos = await persistPhotosAsDataUrls(session.photos);
+  const photos = templateNeedsEmbeddedPhotos(session.templateId)
+    ? await persistPhotosAsDataUrls(session.photos)
+    : [...session.photos];
   const id = newId();
   const entry: HistoryEntryV1 = {
     version: 1,
@@ -124,8 +133,11 @@ export async function addHistoryFromSession(
   return id;
 }
 
-/** 更新当前正在编辑的历史条目（结果页改字时） */
-export function updateCurrentHistoryCopy(copy: DayFrameCopy): void {
+/** 更新当前正在编辑的历史条目（结果页改字 / 换模板时） */
+export function updateCurrentHistoryEntry(patch: {
+  copy?: DayFrameCopy;
+  templateId?: TemplateId;
+}): void {
   const id = getCurrentHistoryId();
   if (!id) return;
   const entries = readRaw();
@@ -133,7 +145,7 @@ export function updateCurrentHistoryCopy(copy: DayFrameCopy): void {
   if (idx < 0) return;
   entries[idx] = {
     ...entries[idx],
-    copy,
+    ...patch,
     savedAt: Date.now(),
   };
   try {
@@ -141,6 +153,11 @@ export function updateCurrentHistoryCopy(copy: DayFrameCopy): void {
   } catch {
     /* 存储满时静默跳过，避免打断编辑 */
   }
+}
+
+/** @deprecated 使用 updateCurrentHistoryEntry */
+export function updateCurrentHistoryCopy(copy: DayFrameCopy): void {
+  updateCurrentHistoryEntry({ copy });
 }
 
 export function deleteHistoryEntry(id: string): void {
@@ -164,7 +181,7 @@ export function openHistoryEntry(id: string): boolean {
   const session: DayFrameSessionV1 = {
     version: 1,
     styleId: entry.styleId,
-    templateId: entry.templateId,
+    templateId: normalizeTemplateId(entry.templateId as string | undefined),
     photos: entry.photos,
     copy: entry.copy,
     createdAt: entry.createdAt,

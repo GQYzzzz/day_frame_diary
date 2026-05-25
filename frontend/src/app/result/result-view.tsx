@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import { exportElementToPng } from "@/lib/export-card";
-import { updateCurrentHistoryCopy } from "@/lib/history";
+import { updateCurrentHistoryEntry } from "@/lib/history";
 import { loadDayFrameSession, saveDayFrameSession } from "@/lib/session";
+import {
+  normalizeTemplateId,
+  TEMPLATE_REGISTRY,
+  templateLabel,
+} from "@/lib/templates/registry";
 import { STYLE_PRESETS } from "@/lib/types";
-import type { DayFrameCopy, DayFrameSessionV1 } from "@/lib/types";
+import type { DayFrameCopy, DayFrameSessionV1, TemplateId } from "@/lib/types";
 
 function styleLabel(id: DayFrameSessionV1["styleId"]) {
   return STYLE_PRESETS.find((s) => s.id === id)?.label ?? id;
@@ -19,18 +23,28 @@ export function ResultView() {
   const [copy, setCopy] = useState<DayFrameCopy | null>(
     () => session?.copy ?? null,
   );
+  const [templateId, setTemplateId] = useState<TemplateId>(() =>
+    normalizeTemplateId(session?.templateId),
+  );
+  const [layoutSeed, setLayoutSeed] = useState(
+    () => session?.createdAt ?? Date.now(),
+  );
   const [hashtagsText, setHashtagsText] = useState(
     () => session?.copy?.hashtags.join(" ") ?? "",
   );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const templateEntry = TEMPLATE_REGISTRY[templateId];
+  const TemplateComponent = templateEntry.Component;
+  const previewWidth = templateEntry.previewWidth;
+
   useEffect(() => {
     if (!session || !copy) return;
-    const next = { ...session, copy };
+    const next: DayFrameSessionV1 = { ...session, copy, templateId };
     saveDayFrameSession(next);
-    updateCurrentHistoryCopy(copy);
-  }, [session, copy]);
+    updateCurrentHistoryEntry({ copy, templateId });
+  }, [session, copy, templateId]);
 
   if (!session || !copy) {
     return (
@@ -88,7 +102,9 @@ export function ResultView() {
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
             风格：<span className="font-medium">{styleLabel(session.styleId)}</span>
             {" · "}
-            模板：竖版长图
+            模板：<span className="font-medium">{templateLabel(templateId)}</span>
+            {" · "}
+            {session.photos.length} 张图
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -100,6 +116,15 @@ export function ResultView() {
           >
             {exporting ? "导出中…" : "导出 PNG"}
           </button>
+          {templateId === "polka-scrapbook-v1" ? (
+            <button
+              type="button"
+              onClick={() => setLayoutSeed(Date.now())}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            >
+              重新排版
+            </button>
+          ) : null}
           <Link
             href="/upload"
             className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
@@ -115,17 +140,27 @@ export function ResultView() {
         </p>
       ) : null}
 
+      <p className="mb-6 text-xs text-zinc-500">
+        模板在上传页已选定。若要换一种版式，请{" "}
+        <Link href="/upload" className="font-medium text-zinc-700 underline dark:text-zinc-300">
+          重新上传
+        </Link>
+        并选择其他模板。
+      </p>
+
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start">
         <div className="flex justify-center lg:self-start">
           <div
-            className="w-[390px] shrink-0 max-h-[min(72dvh,calc(100dvh-14rem))] overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] lg:max-h-[calc(100dvh-7rem)]"
+            className="shrink-0 max-h-[min(72dvh,calc(100dvh-14rem))] overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] lg:max-h-[calc(100dvh-7rem)]"
+            style={{ width: previewWidth }}
             aria-label="排版预览，可在区域内上下滑动"
           >
-            <VerticalDiaryTemplate
+            <TemplateComponent
               ref={cardRef}
               copy={copy}
               photos={session.photos}
               styleId={session.styleId}
+              layoutSeed={layoutSeed}
             />
           </div>
         </div>
