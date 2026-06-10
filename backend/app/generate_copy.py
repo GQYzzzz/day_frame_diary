@@ -1,3 +1,11 @@
+"""
+DayFrame 文案生成核心模块。
+
+通过 OpenAI gpt-4o-mini（vision）识别用户上传的照片，
+生成结构化的日记文案（标题、正文、每张图配文、话题标签）。
+同时支持 hand-drawn-v1 模板的 SVG 手绘标注坐标生成。
+"""
+
 import base64
 import json
 import os
@@ -16,7 +24,10 @@ from app.schemas import (
     SketchCalloutModel,
 )
 
+# prompts/ 目录位于仓库根目录，通过 __file__ 向上两级定位
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
+
+# 风格 id 到中文名称的映射，拼入 user prompt 让模型理解文风
 STYLE_LABELS = {
     "xiaohongshu": "小红书",
     "travel": "旅行日记",
@@ -27,10 +38,12 @@ STYLE_LABELS = {
 
 
 def _openai_base_url() -> str:
+    """构造 OpenAI API base URL，兼容带 /chat/completions 的误填。"""
     raw = (os.environ.get("OPENAI_BASE_URL") or "").strip()
     if not raw:
         return "https://api.openai.com/v1"
     u = raw.rstrip("/")
+    # 如果用户误填了完整 /chat/completions 路径，自动去除
     if u.endswith("/chat/completions"):
         u = u[: -len("/chat/completions")].rstrip("/")
     if not u.endswith("/v1"):
@@ -39,6 +52,7 @@ def _openai_base_url() -> str:
 
 
 def _strip_json_fence(text: str) -> str:
+    """去除模型输出中可能出现的 Markdown 代码围栏（```json ... ```）。"""
     t = text.strip()
     if t.startswith("```"):
         t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
@@ -47,11 +61,16 @@ def _strip_json_fence(text: str) -> str:
 
 
 def _parse_model_json(raw: str) -> dict:
+    """解析模型返回的 JSON 字符串，自动修复截断/格式问题。"""
     return parse_json_object(_strip_json_fence(raw))
 
 
 def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
-    """合并常见嵌套结构，并为缺失的 title/diary 等填默认值。"""
+    """合并模型返回中的嵌套字段，为缺失的 title/diary/captions/hashtags 填默认值。
+
+    模型有时会在 result / data / copy 等外层 key 里嵌套真正的字段，
+    此函数展开所有可能的包装层，确保返回的结构是扁平的 DayFrameCopy 格式。
+    """
     merged = dict(data)
     for key in ("result", "data", "copy", "response", "output", "content"):
         inner = merged.get(key)
@@ -68,6 +87,7 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         caps = []
     captions = [str(c).strip() for c in caps if c is not None and str(c).strip()]
 
+    # 手绘模板中：如果 captions 不够，从 sketches 的 summary 字段提取补充
     sketches_raw = merged.get("sketches")
     if isinstance(sketches_raw, list):
         for i, sk in enumerate(sketches_raw):
@@ -104,6 +124,11 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
 
 
 def _completion_text_and_finish(resp: object) -> tuple[str, str | None]:
+    """从 OpenAI ChatCompletion 响应中提取文本内容和 finish_reason。
+
+    参数 resp 可以是 SDK 的 Pydantic 对象（正常情况），
+    也可能是字符串（网关返回 HTML 等异常），此函数统一处理。
+    """
     if isinstance(resp, str):
         snippet = resp.strip()[:200]
         if snippet.lower().startswith("<!doctype") or snippet.lower().startswith("<html"):
@@ -123,11 +148,18 @@ def _completion_text_and_finish(resp: object) -> tuple[str, str | None]:
 
 
 def _message_content_from_completion(resp: object) -> str:
+    """仅从响应中提取文本，忽略 finish_reason。"""
     content, _ = _completion_text_and_finish(resp)
     return content
 
 
 def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
+    """根据模板类型和图片数量，决定 max_tokens 上限。
+
+    手绘模板的 JSON 输出体积大（含坐标数组），自动按图片数量增加上限；
+    普通文案模板使用固定 2048。
+    环境变量 OPENAI_MAX_TOKENS 可强行覆盖。
+    """
     raw = os.environ.get("OPENAI_MAX_TOKENS", "").strip()
     if raw:
         try:
@@ -143,6 +175,10 @@ def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
 
 
 def _openai_timeout_seconds() -> float:
+    """返回 OpenAI API 调用的超时秒数，默认 360 秒（6 分钟）。
+
+    通过环境变量 OPENAI_TIMEOUT 配置，最小 60 秒。
+    """
     raw = os.environ.get("OPENAI_TIMEOUT", "360").strip()
     try:
         return max(60.0, float(raw))
@@ -151,6 +187,13 @@ def _openai_timeout_seconds() -> float:
 
 
 def _load_system_prompt(template_id: str) -> str:
+    """从 prompts/ 目录加载对应模板的系统提示词文件。
+
+    根据 template_id 选择不同的提示词文件：
+    - hand-drawn-v1 → generate_hand_drawn_system.md（含手绘坐标要求）
+    - 其他 → generate_copy_system.md（纯文案）
+    文件不存在时返回内联 fallback 文本。
+    """
     if template_id == "hand-drawn-v1":
         path = PROMPTS_DIR / "generate_hand_drawn_system.md"
         fallback = (
@@ -166,9 +209,16 @@ def _load_system_prompt(template_id: str) -> str:
 
 
 def _image_parts(upload_dir: Path, filenames: list[str]) -> list[dict]:
+    """读取上传的图片文件，压缩后转为 base64 的 OpenAI message part。
+
+    每张图被压缩到最长边 1024px、JPEG quality 78，
+    然后编码为 data URI 格式嵌入 user message 的 image_url part。
+    包含路径穿越防护（校验文件在 upload_dir 内）。
+    """
     parts: list[dict] = []
     for name in filenames:
         path = (upload_dir / name).resolve()
+        # 路径穿越防护：确保文件在 upload_dir 内
         try:
             path.relative_to(upload_dir.resolve())
         except ValueError as e:
@@ -191,6 +241,17 @@ def _image_parts(upload_dir: Path, filenames: list[str]) -> list[dict]:
 
 
 def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCopyModel:
+    """核心入口：调用 OpenAI gpt-4o-mini 生成完整的日记文案。
+
+    流程：
+    1. 校验 API Key 存在
+    2. 加载系统提示词（根据 template_id 选择）
+    3. 读取、压缩、编码图片为 base64
+    4. 构造 user prompt（含风格、模板、图片数量等信息）
+    5. 调用 OpenAI Chat Completion API（response_format = json_object）
+    6. 解析并修复模型返回的 JSON
+    7. 通过 Pydantic 校验后返回 DayFrameCopyModel
+    """
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key or not api_key.strip():
         raise RuntimeError("MISSING_API_KEY")
@@ -215,6 +276,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
         f"请根据以上 {n} 张图（按发送顺序）生成 JSON。"
         f"captions 必须恰好包含 {n} 个字符串，与图片一一对应。"
     )
+    # 将文本和图片放在同一个 user message 中（多模态）
     user_content: list[dict] = [{"type": "text", "text": user_text}, *image_parts]
 
     client = OpenAI(
@@ -235,10 +297,11 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     )
     raw, finish = _completion_text_and_finish(resp)
     if finish == "length":
-        # 仍尝试修复截断 JSON
+        # 输出被截断时，json_repair 仍会尝试修复不完整的 JSON
         pass
     data = _coerce_dayframe_payload(_parse_model_json(raw), n)
 
+    # Pydantic 校验，确保字段类型和格式正确
     try:
         copy = DayFrameCopyModel.model_validate(data)
     except ValidationError as e:
@@ -264,6 +327,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
 
 def _load_overlay_sketch_prompt() -> str:
+    """加载手绘标注的系统提示词，供 overlay 回退方案使用。"""
     path = PROMPTS_DIR / "generate_hand_drawn_system.md"
     if path.is_file():
         return path.read_text(encoding="utf-8")
@@ -274,7 +338,12 @@ def generate_overlay_sketches(
     upload_dir: Path,
     req: GenerateRequest,
 ) -> list[PhotoSketchModel]:
-    """图像编辑不可用时的回退：用 vision 生成 SVG 叠加坐标。"""
+    """图像编辑不可用时的回退：用 vision 模型生成 SVG 叠加坐标。
+
+    当 OPENAI_IMAGE_API（gpt-image-1）不可用时（例如第三方网关不支持 /images/edits），
+    改用 vision 模型（gpt-4o-mini）生成每张图上标注元素的坐标信息，
+    前端据此渲染 SVG 叠加层。
+    """
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key or not api_key.strip():
         raise RuntimeError("MISSING_API_KEY")
@@ -314,6 +383,11 @@ def generate_overlay_sketches(
 
 
 def _coerce_photo_sketch(item: dict) -> dict:
+    """将模型返回的草图数据平整为 PhotoSketchModel 兼容的字典。
+
+    处理大小写字段名差异（target_x / targetX），
+    对校验失败的 callout 尝试手动赋值兜底，避免整条数据丢弃。
+    """
     callouts_in = item.get("callouts") or []
     callouts: list[dict] = []
     for c in callouts_in:
@@ -322,6 +396,7 @@ def _coerce_photo_sketch(item: dict) -> dict:
         try:
             callouts.append(SketchCalloutModel.model_validate(c).model_dump())
         except ValidationError:
+            # 模型可能返回字段名大小写不一致，手动兼容
             try:
                 callouts.append(
                     SketchCalloutModel(
@@ -348,6 +423,7 @@ def _coerce_photo_sketch(item: dict) -> dict:
 
 
 def overlay_vision_enabled() -> bool:
+    """检查是否启用了 overlay 回退方案（HAND_DRAWN_OVERLAY_VISION=true）。"""
     raw = (os.environ.get("HAND_DRAWN_OVERLAY_VISION") or "").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
@@ -357,6 +433,11 @@ def _normalize_sketches(
     n: int,
     template_id: str,
 ) -> list[PhotoSketchModel] | None:
+    """规范 sketches 数据：统一类型、补齐缺失条目、裁剪超量条目。
+
+    只对 hand-drawn-v1 模板生效；其他模板返回 None。
+    确保返回的列表长度与图片数量 n 一致。
+    """
     if template_id != "hand-drawn-v1":
         return None
     items: list[PhotoSketchModel] = []
@@ -368,6 +449,7 @@ def _normalize_sketches(
                 items.append(PhotoSketchModel.model_validate(_coerce_photo_sketch(item)))
             except ValidationError:
                 continue
+    # 不足 n 条则用空 callouts 补齐
     while len(items) < n:
         items.append(PhotoSketchModel(callouts=[], summary="A little moment ♡"))
     if len(items) > n:
@@ -375,6 +457,6 @@ def _normalize_sketches(
     return items
 
 
-# 供 main 创建 Images API 客户端（与 chat 共用 base_url / timeout）
+# 导出给 main.py 使用，使 Images API 客户端（sketch_image.py）与 chat 共用 base_url / timeout 配置
 openai_base_url = _openai_base_url
 openai_timeout_seconds = _openai_timeout_seconds
