@@ -7,6 +7,7 @@
 | 文件 | 用途 |
 |------|------|
 | `generate_copy_system.md` | **gpt-4o-mini** 多模态生成：看图 + 输出 `title` / `diary` / `captions` / `hashtags` 的 JSON 约束与风格说明 |
+| `generate_hand_drawn_system.md` | 手绘模板 `hand-drawn-v1`：在上述字段外增加 `sketches`（每张图的英文 callout 坐标与 summary） |
 
 后端从仓库根路径读取：`prompts/generate_copy_system.md`（相对 `backend/app/` 上两级目录）。
 

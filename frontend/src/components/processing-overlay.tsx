@@ -1,6 +1,8 @@
-type Phase = "uploading" | "generating";
+import type { TemplateId } from "@/lib/types";
 
-const copy: Record<Phase, { title: string; hint: string }> = {
+type Phase = "uploading" | "generating" | "annotating";
+
+const base: Record<Phase, { title: string; hint: string }> = {
   uploading: {
     title: "正在上传照片…",
     hint: "通常只需几秒钟。",
@@ -9,10 +11,27 @@ const copy: Record<Phase, { title: string; hint: string }> = {
     title: "AI 正在识图并写文案…",
     hint: "通常约 30 秒～2 分钟；第三方网关较慢时可能更久，请勿关闭页面。",
   },
+  annotating: {
+    title: "正在生成手绘标注图…",
+    hint: "使用图像编辑模型在原图上绘制（每张约 1～3 分钟）。",
+  },
 };
 
-export function ProcessingOverlay({ phase }: { phase: Phase }) {
-  const { title, hint } = copy[phase];
+export function ProcessingOverlay({
+  phase,
+  templateId,
+}: {
+  phase: Phase;
+  templateId?: TemplateId;
+}) {
+  const { title, hint } =
+    phase === "generating" && templateId === "hand-drawn-v1"
+      ? {
+          title: "AI 正在写文案并绘制手绘标注…",
+          hint: "含 gpt-image-1 图像编辑，每张约 1～3 分钟；网关不支持时会自动改用叠加模式。请勿关闭页面。",
+        }
+      : base[phase];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 px-6 backdrop-blur-sm"

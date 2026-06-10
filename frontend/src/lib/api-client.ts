@@ -1,5 +1,17 @@
 import { getApiBase } from "@/lib/api";
-import type { DayFrameCopy, StyleId } from "@/lib/types";
+import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
+import type {
+  DayFrameCopy,
+  SketchRenderMode,
+  StyleId,
+  TemplateId,
+} from "@/lib/types";
+
+export type GenerateResult = {
+  copy: DayFrameCopy;
+  annotatedPhotos?: string[];
+  sketchRenderMode?: SketchRenderMode;
+};
 
 const UPLOAD_TIMEOUT_MS = 60_000;
 
@@ -104,37 +116,61 @@ export async function uploadImages(files: File[]): Promise<UploadItem[]> {
 export async function generateCopy(
   styleId: StyleId,
   filenames: string[],
-): Promise<DayFrameCopy> {
-  const result = await fetchJson<{ copy?: DayFrameCopy }>(
+  templateId: TemplateId,
+): Promise<GenerateResult> {
+  const result = await fetchJson<{
+    copy?: Record<string, unknown>;
+    annotated_photos?: string[];
+    sketch_render_mode?: string;
+  }>(
     `${getApiBase()}/api/v1/generate`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_id: styleId, filenames }),
+      body: JSON.stringify({
+        style_id: styleId,
+        template_id: templateId,
+        filenames,
+      }),
     },
     getGenerateTimeoutMs(),
   );
   if (!result.ok) {
     throw new Error(formatApiError(result.body, "文案生成失败。"));
   }
-  const raw = result.data.copy;
+  const body = result.data;
+  const copyPayload = body.copy;
   if (
-    !raw ||
-    typeof raw.title !== "string" ||
-    typeof raw.diary !== "string" ||
-    !Array.isArray(raw.captions) ||
-    !Array.isArray(raw.hashtags)
+    !copyPayload ||
+    typeof copyPayload.title !== "string" ||
+    typeof copyPayload.diary !== "string" ||
+    !Array.isArray(copyPayload.captions) ||
+    !Array.isArray(copyPayload.hashtags)
   ) {
     throw new Error("生成接口返回格式异常。");
   }
   const copy: DayFrameCopy = {
-    title: raw.title,
-    diary: raw.diary,
-    captions: raw.captions.slice(0, filenames.length),
-    hashtags: raw.hashtags,
+    title: String(copyPayload.title),
+    diary: String(copyPayload.diary),
+    captions: (copyPayload.captions as string[]).slice(0, filenames.length),
+    hashtags: copyPayload.hashtags as string[],
   };
   while (copy.captions.length < filenames.length) {
     copy.captions.push(`第 ${copy.captions.length + 1} 张`);
   }
-  return copy;
+  const mode = body.sketch_render_mode;
+  const sketchRenderMode: SketchRenderMode | undefined =
+    mode === "image" || mode === "overlay" ? mode : undefined;
+
+  if (templateId === "hand-drawn-v1" && sketchRenderMode !== "image") {
+    copy.sketches = normalizeSketches(copyPayload.sketches, filenames.length);
+  }
+
+  const annotated = body.annotated_photos;
+  const annotatedPhotos =
+    Array.isArray(annotated) && annotated.every((u) => typeof u === "string")
+      ? annotated
+      : undefined;
+
+  return { copy, annotatedPhotos, sketchRenderMode };
 }

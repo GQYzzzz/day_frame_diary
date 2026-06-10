@@ -1,13 +1,20 @@
 import base64
 import json
 import os
+import re
 from pathlib import Path
 
 from openai import OpenAI
 from pydantic import ValidationError
 
 from app.image_prep import EXT_TO_MIME, read_image_for_model
-from app.schemas import DayFrameCopyModel, GenerateRequest
+from app.json_repair import parse_json_object
+from app.schemas import (
+    DayFrameCopyModel,
+    GenerateRequest,
+    PhotoSketchModel,
+    SketchCalloutModel,
+)
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 STYLE_LABELS = {
@@ -31,7 +38,72 @@ def _openai_base_url() -> str:
     return u
 
 
-def _message_content_from_completion(resp: object) -> str:
+def _strip_json_fence(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*```\s*$", "", t)
+    return t.strip()
+
+
+def _parse_model_json(raw: str) -> dict:
+    return parse_json_object(_strip_json_fence(raw))
+
+
+def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
+    """合并常见嵌套结构，并为缺失的 title/diary 等填默认值。"""
+    merged = dict(data)
+    for key in ("result", "data", "copy", "response", "output", "content"):
+        inner = merged.get(key)
+        if isinstance(inner, dict):
+            merged = {**merged, **inner}
+
+    title = merged.get("title") or merged.get("Title") or ""
+    diary = merged.get("diary") or merged.get("content") or merged.get("body") or ""
+
+    caps = merged.get("captions")
+    if isinstance(caps, str):
+        caps = [caps]
+    if not isinstance(caps, list):
+        caps = []
+    captions = [str(c).strip() for c in caps if c is not None and str(c).strip()]
+
+    sketches_raw = merged.get("sketches")
+    if isinstance(sketches_raw, list):
+        for i, sk in enumerate(sketches_raw):
+            if i >= len(captions) and isinstance(sk, dict):
+                summary = sk.get("summary") or sk.get("caption")
+                if summary:
+                    captions.append(str(summary)[:120])
+
+    while len(captions) < photo_count:
+        captions.append(f"第 {len(captions) + 1} 张")
+    captions = captions[:photo_count]
+
+    tags = merged.get("hashtags") or merged.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in re.split(r"[\s,#]+", tags) if t.strip()]
+    if not isinstance(tags, list):
+        tags = []
+    hashtags = [str(t) if str(t).startswith("#") else f"#{t}" for t in tags if t][:8]
+    if not hashtags:
+        hashtags = ["#生活记录", "#日常", "#DayFrame"]
+
+    if not str(title).strip():
+        title = captions[0][:40] if captions else "今日随拍"
+    if not str(diary).strip():
+        diary = "记录一下今天的心情与画面，留给以后的自己。"
+
+    return {
+        "title": str(title).strip(),
+        "diary": str(diary).strip(),
+        "captions": captions,
+        "hashtags": hashtags,
+        "sketches": sketches_raw,
+    }
+
+
+def _completion_text_and_finish(resp: object) -> tuple[str, str | None]:
     if isinstance(resp, str):
         snippet = resp.strip()[:200]
         if snippet.lower().startswith("<!doctype") or snippet.lower().startswith("<html"):
@@ -43,8 +115,31 @@ def _message_content_from_completion(resp: object) -> str:
     choices = getattr(resp, "choices", None)
     if not choices:
         raise ValueError("模型返回为空（无 choices）")
-    message = choices[0].message
-    return (getattr(message, "content", None) or "").strip()
+    choice = choices[0]
+    message = choice.message
+    content = (getattr(message, "content", None) or "").strip()
+    finish = getattr(choice, "finish_reason", None)
+    return content, finish
+
+
+def _message_content_from_completion(resp: object) -> str:
+    content, _ = _completion_text_and_finish(resp)
+    return content
+
+
+def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
+    raw = os.environ.get("OPENAI_MAX_TOKENS", "").strip()
+    if raw:
+        try:
+            cap = int(raw)
+            if cap >= 1024:
+                return cap
+        except ValueError:
+            pass
+    if template_id == "hand-drawn-v1":
+        # 手绘 JSON 体积大，按张数加码，降低截断概率
+        return min(16384, 6000 + photo_count * 3500)
+    return 2048
 
 
 def _openai_timeout_seconds() -> float:
@@ -55,10 +150,18 @@ def _openai_timeout_seconds() -> float:
         return 360.0
 
 
-def _load_system_prompt() -> str:
-    path = PROMPTS_DIR / "generate_copy_system.md"
+def _load_system_prompt(template_id: str) -> str:
+    if template_id == "hand-drawn-v1":
+        path = PROMPTS_DIR / "generate_hand_drawn_system.md"
+        fallback = (
+            "你是手绘标注助手。只输出 JSON：title, diary, captions, hashtags, sketches。"
+            "每张图 sketches.callouts 至少 4 项，每项含 outline 点数组。"
+        )
+    else:
+        path = PROMPTS_DIR / "generate_copy_system.md"
+        fallback = "你是图文助手，只输出 JSON：title, diary, captions, hashtags。"
     if not path.is_file():
-        return "你是图文助手，只输出 JSON：title, diary, captions, hashtags。"
+        return fallback
     return path.read_text(encoding="utf-8")
 
 
@@ -94,13 +197,21 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
     n = len(req.filenames)
     style_label = STYLE_LABELS.get(req.style_id, req.style_id)
-    system = _load_system_prompt()
+    system = _load_system_prompt(req.template_id)
 
     image_parts = _image_parts(upload_dir, req.filenames)
+    extra = ""
+    if req.template_id == "hand-drawn-v1":
+        extra = (
+            f"\n手绘模板：顶层 JSON 必须同时包含 title、diary、captions、hashtags、sketches 五个字段。"
+            f"sketches 长度 {n}，每张 callouts≥4，每项 outline≥10 点。\n"
+        )
     user_text = (
         f"style_id: {req.style_id}\n"
         f"风格名称：{style_label}\n"
-        f"图片数量：{n}\n\n"
+        f"template_id: {req.template_id}\n"
+        f"图片数量：{n}\n"
+        f"{extra}\n"
         f"请根据以上 {n} 张图（按发送顺序）生成 JSON。"
         f"captions 必须恰好包含 {n} 个字符串，与图片一一对应。"
     )
@@ -119,27 +230,151 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ],
-        temperature=0.7,
-        max_tokens=2048,
+        temperature=0.65 if req.template_id == "hand-drawn-v1" else 0.7,
+        max_tokens=_max_tokens_for_request(req.template_id, n),
     )
-    raw = _message_content_from_completion(resp)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError("模型返回非合法 JSON") from e
+    raw, finish = _completion_text_and_finish(resp)
+    if finish == "length":
+        # 仍尝试修复截断 JSON
+        pass
+    data = _coerce_dayframe_payload(_parse_model_json(raw), n)
 
     try:
         copy = DayFrameCopyModel.model_validate(data)
     except ValidationError as e:
-        raise ValueError(f"模型 JSON 字段不符合约定: {e!s}") from e
+        raise ValueError(
+            f"模型 JSON 字段不符合约定（已尝试补全缺失字段）。"
+            f"请重试。详情: {e!s}",
+        ) from e
     caps = list(copy.captions)
     if len(caps) < n:
         caps.extend([f"第 {i + 1} 张" for i in range(len(caps), n)])
     elif len(caps) > n:
         caps = caps[:n]
+
+    sketches = _normalize_sketches(copy.sketches, n, req.template_id)
+
     return DayFrameCopyModel(
         title=copy.title,
         diary=copy.diary,
         captions=caps,
         hashtags=copy.hashtags,
+        sketches=sketches,
     )
+
+
+def _load_overlay_sketch_prompt() -> str:
+    path = PROMPTS_DIR / "generate_hand_drawn_system.md"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return "输出 JSON，含 sketches 数组。"
+
+
+def generate_overlay_sketches(
+    upload_dir: Path,
+    req: GenerateRequest,
+) -> list[PhotoSketchModel]:
+    """图像编辑不可用时的回退：用 vision 生成 SVG 叠加坐标。"""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key or not api_key.strip():
+        raise RuntimeError("MISSING_API_KEY")
+
+    n = len(req.filenames)
+    system = _load_overlay_sketch_prompt()
+    image_parts = _image_parts(upload_dir, req.filenames)
+    user_text = (
+        f"图片数量：{n}\n"
+        f"只输出 JSON，字段：sketches（长度 {n}）。"
+        f"每个 callout 必须含 outline（10–20 个点，沿物体真实外轮廓，禁止椭圆）。"
+        f"不要 title/diary，仅 sketches。"
+    )
+    client = OpenAI(
+        api_key=api_key.strip(),
+        base_url=_openai_base_url(),
+        timeout=_openai_timeout_seconds(),
+        max_retries=1,
+    )
+    resp = client.chat.completions.create(
+        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": [{"type": "text", "text": user_text}, *image_parts]},
+        ],
+        temperature=0.5,
+        max_tokens=4096,
+    )
+    raw = _message_content_from_completion(resp)
+    try:
+        data = _parse_model_json(raw)
+    except ValueError:
+        return []
+    sketches_raw = data.get("sketches")
+    return _normalize_sketches(sketches_raw, n, "hand-drawn-v1") or []
+
+
+def _coerce_photo_sketch(item: dict) -> dict:
+    callouts_in = item.get("callouts") or []
+    callouts: list[dict] = []
+    for c in callouts_in:
+        if not isinstance(c, dict):
+            continue
+        try:
+            callouts.append(SketchCalloutModel.model_validate(c).model_dump())
+        except ValidationError:
+            try:
+                callouts.append(
+                    SketchCalloutModel(
+                        subject=str(c.get("subject") or "detail"),
+                        text=str(c.get("text") or "nice ♡"),
+                        target_x=float(c.get("target_x", c.get("targetX", 0.5))),
+                        target_y=float(c.get("target_y", c.get("targetY", 0.5))),
+                        target_w=float(c.get("target_w", c.get("targetW", 0.2))),
+                        target_h=float(c.get("target_h", c.get("targetH", 0.15))),
+                        label_x=float(c.get("label_x", c.get("labelX", 0.15))),
+                        label_y=float(c.get("label_y", c.get("labelY", 0.15))),
+                        outline=None,
+                        decoration=c.get("decoration"),
+                    ).model_dump(),
+                )
+            except (TypeError, ValueError):
+                continue
+    return {
+        "callouts": callouts,
+        "summary": str(item.get("summary") or ""),
+        "summary_x": float(item.get("summary_x", item.get("summaryX", 0.78))),
+        "summary_y": float(item.get("summary_y", item.get("summaryY", 0.9))),
+    }
+
+
+def overlay_vision_enabled() -> bool:
+    raw = (os.environ.get("HAND_DRAWN_OVERLAY_VISION") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _normalize_sketches(
+    raw: list[PhotoSketchModel] | None,
+    n: int,
+    template_id: str,
+) -> list[PhotoSketchModel] | None:
+    if template_id != "hand-drawn-v1":
+        return None
+    items: list[PhotoSketchModel] = []
+    for item in raw or []:
+        if isinstance(item, PhotoSketchModel):
+            items.append(item)
+        elif isinstance(item, dict):
+            try:
+                items.append(PhotoSketchModel.model_validate(_coerce_photo_sketch(item)))
+            except ValidationError:
+                continue
+    while len(items) < n:
+        items.append(PhotoSketchModel(callouts=[], summary="A little moment ♡"))
+    if len(items) > n:
+        items = items[:n]
+    return items
+
+
+# 供 main 创建 Images API 客户端（与 chat 共用 base_url / timeout）
+openai_base_url = _openai_base_url
+openai_timeout_seconds = _openai_timeout_seconds

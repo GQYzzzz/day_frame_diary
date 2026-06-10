@@ -5,13 +5,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { exportElementToPng } from "@/lib/export-card";
 import { updateCurrentHistoryEntry } from "@/lib/history";
 import { loadDayFrameSession, saveDayFrameSession } from "@/lib/session";
+import { buildFallbackSketch } from "@/lib/sketch/fallback-sketch";
+import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import {
   normalizeTemplateId,
   TEMPLATE_REGISTRY,
   templateLabel,
 } from "@/lib/templates/registry";
 import { STYLE_PRESETS } from "@/lib/types";
-import type { DayFrameCopy, DayFrameSessionV1, TemplateId } from "@/lib/types";
+import type {
+  DayFrameCopy,
+  DayFrameSessionV1,
+  PhotoSketch,
+  TemplateId,
+} from "@/lib/types";
 
 function styleLabel(id: DayFrameSessionV1["styleId"]) {
   return STYLE_PRESETS.find((s) => s.id === id)?.label ?? id;
@@ -38,6 +45,23 @@ export function ResultView() {
   const templateEntry = TEMPLATE_REGISTRY[templateId];
   const TemplateComponent = templateEntry.Component;
   const previewWidth = templateEntry.previewWidth;
+
+  useEffect(() => {
+    if (!session || templateId !== "hand-drawn-v1" || !copy) return;
+    const n = session.photos.length;
+    const hasSketches =
+      copy.sketches &&
+      copy.sketches.length === n &&
+      copy.sketches.some((s) => s.callouts.length > 0 || s.summary);
+    if (hasSketches) return;
+    const sketches =
+      copy.sketches && copy.sketches.length > 0
+        ? normalizeSketches(copy.sketches, n)
+        : session.photos.map((_, i) =>
+            buildFallbackSketch(copy.captions[i] ?? "", i),
+          );
+    setCopy({ ...copy, sketches });
+  }, [session, templateId]);
 
   useEffect(() => {
     if (!session || !copy) return;
@@ -103,6 +127,17 @@ export function ResultView() {
             风格：<span className="font-medium">{styleLabel(session.styleId)}</span>
             {" · "}
             模板：<span className="font-medium">{templateLabel(templateId)}</span>
+            {session.sketchRenderMode === "image" ? (
+              <>
+                {" · "}
+                <span className="text-emerald-600 dark:text-emerald-400">AI 绘制定图</span>
+              </>
+            ) : session.sketchRenderMode === "overlay" ? (
+              <>
+                {" · "}
+                <span className="text-amber-600 dark:text-amber-400">SVG 叠加</span>
+              </>
+            ) : null}
             {" · "}
             {session.photos.length} 张图
           </p>
@@ -161,6 +196,7 @@ export function ResultView() {
               photos={session.photos}
               styleId={session.styleId}
               layoutSeed={layoutSeed}
+              sketchRenderMode={session.sketchRenderMode}
             />
           </div>
         </div>
@@ -205,9 +241,71 @@ export function ResultView() {
             />
           </div>
 
+          {templateId === "hand-drawn-v1" &&
+          session.sketchRenderMode === "overlay" ? (
+            <div className="space-y-4 rounded-xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/50">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                手绘英文标注（图上白字）
+              </p>
+              {session.photos.map((_, index) => {
+                const sketch = copy.sketches?.[index];
+                if (!sketch) return null;
+                return (
+                  <div key={`sk-${index}`} className="space-y-2 border-t border-zinc-200/60 pt-3 first:border-0 first:pt-0 dark:border-zinc-700">
+                    <p className="text-xs font-medium text-zinc-500">图 {index + 1}</p>
+                    <label className="text-xs text-zinc-500">总结 summary</label>
+                    <input
+                      value={sketch.summary}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCopy((c) => {
+                          if (!c) return c;
+                          const sketches = [...(c.sketches ?? [])];
+                          const cur: PhotoSketch = sketches[index] ?? {
+                            callouts: [],
+                            summary: "",
+                            summaryX: 0.78,
+                            summaryY: 0.9,
+                          };
+                          sketches[index] = { ...cur, summary: v };
+                          return { ...c, sketches };
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                    />
+                    {sketch.callouts.map((co, ci) => (
+                      <div key={ci} className="space-y-1">
+                        <label className="text-xs text-zinc-400">
+                          {co.subject || `标注 ${ci + 1}`}
+                        </label>
+                        <input
+                          value={co.text}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setCopy((c) => {
+                              if (!c) return c;
+                              const sketches = [...(c.sketches ?? [])];
+                              const cur = sketches[index];
+                              if (!cur) return c;
+                              const callouts = [...cur.callouts];
+                              callouts[ci] = { ...callouts[ci], text: v };
+                              sketches[index] = { ...cur, callouts };
+                              return { ...c, sketches };
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
           <div className="space-y-3">
             <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
-              每张图的说明
+              每张图的说明{templateId === "hand-drawn-v1" ? "（图下中文）" : ""}
             </p>
             <div className="space-y-3">
               {session.photos.map((_, index) => (

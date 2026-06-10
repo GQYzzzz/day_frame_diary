@@ -1,11 +1,13 @@
 "use client";
 
 import type { ComponentType, Ref } from "react";
+import { HandDrawnDiaryTemplate } from "@/components/templates/hand-drawn/hand-drawn-diary-template";
 import { PolkaScrapbookTemplate } from "@/components/templates/scrapbook/polka-scrapbook-template";
 import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import {
   DEFAULT_TEMPLATE_ID,
   type DayFrameCopy,
+  type SketchRenderMode,
   type StyleId,
   type TemplateId,
 } from "@/lib/types";
@@ -15,6 +17,7 @@ export type TemplateRenderProps = {
   photos: string[];
   styleId: StyleId;
   layoutSeed: number;
+  sketchRenderMode?: SketchRenderMode;
 };
 
 type TemplateEntry = {
@@ -39,6 +42,13 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
     previewWidth: 390,
     exportBackground: "#d4d0cb",
     Component: PolkaScrapbookTemplate,
+  },
+  "hand-drawn-v1": {
+    id: "hand-drawn-v1",
+    label: "手绘标注",
+    previewWidth: 390,
+    exportBackground: "#0f0f0f",
+    Component: HandDrawnDiaryTemplate,
   },
 };
 

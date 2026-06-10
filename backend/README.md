@@ -41,14 +41,16 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 - `POST /api/v1/generate`  
   - `Content-Type: application/json`  
-  - 请求体：`{ "style_id": "moments", "filenames": ["uuid.jpg", ...] }`（`style_id` 与前端一致；`filenames` 须为上传接口返回的文件名）  
-  - 响应：`{ "copy": { "title", "diary", "captions", "hashtags" } }`  
+  - 请求体：`{ "style_id": "moments", "template_id": "vertical-v1", "filenames": ["uuid.jpg", ...] }`（`template_id` 可选：`vertical-v1` | `polka-scrapbook-v1` | `hand-drawn-v1`）  
+  - 响应：`{ "copy": { "title", "diary", "captions", "hashtags", "sketches"? } }`（`hand-drawn-v1` 时含每张图的手绘标注坐标）  
 - 默认模型：**`gpt-4o-mini`**（可通过环境变量 `OPENAI_MODEL` 覆盖）  
 - **第三方 OpenAI 兼容网关**：在 `backend/.env` 设置 **`OPENAI_BASE_URL`**（见 `.env.example`）。  
   - 与官方 Python SDK 一致时，**优先使用** `https://z.apiyihe.org/v1`（SDK 会再请求 `/chat/completions`）。  
   - 若服务商要求只填根域名，可试 `https://z.apiyihe.org`。  
   - **不要**把 `https://z.apiyihe.org/v1/chat/completions` 整条当作 base；若误填，程序会自动去掉末尾 `/chat/completions` 再请求。  
-- 系统提示词文件：仓库根目录 **`prompts/generate_copy_system.md`**
+- 系统提示词：仓库根目录 **`prompts/generate_copy_system.md`**
+- **手绘模板**（`hand-drawn-v1`）：文案仍用 `gpt-4o-mini`；标注优先调用 **`POST /v1/images/edits`**（默认模型 **`gpt-image-1`**，提示词见 `prompts/sketch_image_edit.md`）。网关不支持时自动回退 SVG 坐标（`generate_hand_drawn_system.md`）。
+- 环境变量：`OPENAI_IMAGE_MODEL`、`HAND_DRAWN_USE_IMAGE_API`（见 `.env.example`）
 - **生成较慢 / Swagger 一直 Loading**：属正常等待模型；大图会先压缩再发送。若超过 `OPENAI_TIMEOUT`（默认 360s）会返回 **504**；请看运行 uvicorn 的终端是否有报错。
 
 ## 与前端联调

@@ -19,7 +19,7 @@ import {
   type TemplateId,
 } from "@/lib/types";
 
-type BusyPhase = "uploading" | "generating" | null;
+type BusyPhase = "uploading" | "generating" | "annotating" | null;
 
 export function UploadForm() {
   const router = useRouter();
@@ -59,13 +59,21 @@ export function UploadForm() {
       const filenames = items.map((i) => i.filename);
 
       setPhase("generating");
-      const copy = await generateCopy(styleId, filenames);
+      const { copy, annotatedPhotos, sketchRenderMode } = await generateCopy(
+        styleId,
+        filenames,
+        templateId,
+      );
 
+      const displayPhotos = annotatedPhotos ?? photos;
       const session = {
         version: 1 as const,
         styleId,
         templateId,
-        photos,
+        photos: displayPhotos,
+        originalPhotos: annotatedPhotos ? photos : undefined,
+        sketchRenderMode:
+          templateId === "hand-drawn-v1" ? sketchRenderMode : undefined,
         copy,
         createdAt: Date.now(),
       };
@@ -89,7 +97,9 @@ export function UploadForm() {
 
   return (
     <>
-      {phase ? <ProcessingOverlay phase={phase} /> : null}
+      {phase ? (
+        <ProcessingOverlay phase={phase} templateId={templateId} />
+      ) : null}
 
       <form onSubmit={onSubmit} className="mt-8 space-y-8">
         {backendOk === false ? (
@@ -167,7 +177,9 @@ export function UploadForm() {
           <p className="text-xs leading-relaxed text-zinc-500">
             {templateId === "vertical-v1"
               ? "竖版长图：标题 + 正文 + 照片纵向排列，生成与保存较快，适合日常长图。"
-              : "波点拼贴：左上 / 右下对角摆图 + 气泡穿插，仅生成这一种版式（保存历史时会内嵌图片，稍慢一些）。"}
+              : templateId === "polka-scrapbook-v1"
+                ? "波点拼贴：对角摆图 + 气泡穿插（保存历史时会内嵌图片，稍慢）。"
+                : "手绘标注：一次 gpt-4o-mini 看图并返回 JSON（英文标注+轮廓坐标），前端绘制白线边框；通常 1～2 分钟。可选开启图像编辑见 backend/.env。"}
           </p>
         </div>
 

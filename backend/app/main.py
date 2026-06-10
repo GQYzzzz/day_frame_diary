@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 import os
 import re
 import uuid
@@ -13,8 +15,15 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from openai import APITimeoutError, OpenAIError
 
-from app.generate_copy import generate_dayframe_copy
+from openai import OpenAI
+
+from app.generate_copy import (
+    generate_dayframe_copy,
+    openai_base_url,
+    openai_timeout_seconds,
+)
 from app.schemas import GenerateRequest
+from app.sketch_image import SketchAnnotateError, annotate_sketch_photos, image_edit_enabled
 
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 ALLOWED_TYPES = {
@@ -30,6 +39,8 @@ MAX_BYTES_PER_FILE = 12 * 1024 * 1024  # 12 MiB
 FILENAME_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z]+$")
 
 UPLOAD_OPENAPI_PATH = "/api/v1/images/upload"
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DayFrame API", version="0.1.0")
 
@@ -176,6 +187,30 @@ async def generate_copy(req: GenerateRequest) -> dict:
         )
     try:
         copy = await asyncio.to_thread(generate_dayframe_copy, UPLOAD_DIR, req)
+        annotated_photos: list[str] | None = None
+        sketch_render_mode: str | None = None
+
+        if req.template_id == "hand-drawn-v1":
+            sketch_render_mode = "overlay"
+            if image_edit_enabled():
+                api_key = os.getenv("OPENAI_API_KEY", "").strip()
+                client = OpenAI(
+                    api_key=api_key,
+                    base_url=openai_base_url(),
+                    timeout=openai_timeout_seconds(),
+                    max_retries=1,
+                )
+                try:
+                    names = await asyncio.to_thread(
+                        annotate_sketch_photos,
+                        client,
+                        UPLOAD_DIR,
+                        req.filenames,
+                    )
+                    annotated_photos = [f"/api/uploads/{n}" for n in names]
+                    sketch_render_mode = "image"
+                except (SketchAnnotateError, json.JSONDecodeError, OpenAIError) as e:
+                    logger.info("hand-drawn image edit skipped: %s", e)
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=404,
@@ -208,4 +243,8 @@ async def generate_copy(req: GenerateRequest) -> dict:
             status_code=500,
             detail=f"生成失败: {type(e).__name__}: {e}",
         ) from e
-    return {"copy": copy.model_dump()}
+    payload: dict = {"copy": copy.model_dump()}
+    if req.template_id == "hand-drawn-v1":
+        payload["annotated_photos"] = annotated_photos
+        payload["sketch_render_mode"] = sketch_render_mode
+    return payload

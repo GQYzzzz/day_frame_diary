@@ -29,7 +29,7 @@ npm run dev
 | `globals.css` | 全局样式：Tailwind 入口、浅色/深色下的 CSS 变量。 |
 | `page.tsx` | 路由 `/`：产品介绍与跳转到上传、历史。 |
 | `upload/page.tsx` | 路由 `/upload`：页面说明与嵌入 `UploadForm`；可在此写 `metadata`。 |
-| `upload/upload-form.tsx` | 选图、选风格、**选排版模板**（竖版长图 / 波点拼贴）；上传 + 生成文案后按所选模板写入会话并跳转 `/result`。 |
+| `upload/upload-form.tsx` | 选图、选风格、**选排版模板**（竖版 / 波点 / 手绘标注）；上传 + 生成文案后按所选模板写入会话并跳转 `/result`。 |
 | `result/page.tsx` | 路由 `/result`：`metadata` + 渲染 `ResultPageClient`（避免在服务端组件里使用 `dynamic(..., { ssr: false })`）。 |
 | `result/result-page-client.tsx` | 客户端壳：用 `next/dynamic` 关闭 SSR 懒加载 `ResultView`，带加载占位。 |
 | `result/result-view.tsx` | 结果页：展示上传时选定的模板、波点可「重新排版」、编辑文案、导出 PNG。 |
@@ -71,6 +71,13 @@ npm run dev
 ### 数据流（一句话）
 
 `upload-form.tsx` → 后端上传 → 后端生成文案 → `sessionStorage` 会话 + `localStorage` 历史 → `result-view.tsx`（改字同步两处）→ 按 `templateId` 渲染模版 → `export-card.ts` 导出图片；`/history` 可从历史重新载入会话并进入 `/result`。
+
+### 手绘标注模版（`hand-drawn-v1`）
+
+- **推荐路径（`sketch_render_mode: image`）**：后端用 **`gpt-image-1` + `/v1/images/edits`** 在原图上直接绘制白线标注（接近 ChatGPT「图上手绘」），前端只展示生成后的图片，无 SVG 圈。
+- **回退路径（`overlay`）**：网关不支持图像编辑时，用 mini 输出坐标 + 前端 SVG（已做标签防重叠、椭圆描边）。
+- 文案仍由 `gpt-4o-mini` 生成；中文 `captions` 在图下。结果页显示 **AI 绘制定图** 或 **SVG 叠加** 标签。
+- 需官方或支持 Images API 的 `OPENAI_BASE_URL`；第三方仅 chat 中转时常只能走 overlay。
 
 ### 波点拼贴模版（`polka-scrapbook-v1`）
 
