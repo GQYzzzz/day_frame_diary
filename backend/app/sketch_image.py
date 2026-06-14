@@ -1,60 +1,97 @@
-"""OpenAI Images API：在原图上叠加手绘标注（gpt-image-1 系列）。"""
+"""OpenAI 官方 Images API：gpt-image-2 + generate_plog.md 手绘 PLOG 定图。"""
 
 import base64
-import io
 import json
 import os
 import uuid
 from pathlib import Path
 
 from openai import OpenAI, OpenAIError
-from PIL import Image
+
+from app.schemas import DayFrameCopyModel
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-MAX_EDIT_SIDE = 1536
+IMAGE_MODEL = "gpt-image-2"
+
+_EXT_TO_MIME = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
 
 
 class SketchAnnotateError(Exception):
-    """图像编辑不可用或失败，应回退到前端 SVG 叠加。"""
+    """gpt-image-2 图像编辑失败。"""
 
 
-def _load_edit_prompt() -> str:
-    path = PROMPTS_DIR / "sketch_image_edit.md"
-    if path.is_file():
-        return path.read_text(encoding="utf-8").strip()
-    return (
-        "Add thin white hand-drawn English labels and loose outlines on this photo. "
-        "Keep the photo unchanged. No overlapping text."
+def openai_image_base_url() -> str:
+    raw = (os.environ.get("OPENAI_IMAGE_BASE_URL") or "https://api.openai.com/v1").strip()
+    u = raw.rstrip("/")
+    if u.endswith("/chat/completions"):
+        u = u[: -len("/chat/completions")].rstrip("/")
+    if not u.endswith("/v1"):
+        u = f"{u}/v1"
+    return u
+
+
+def openai_image_timeout_seconds() -> float:
+    raw = os.environ.get("OPENAI_IMAGE_TIMEOUT", os.environ.get("OPENAI_TIMEOUT", "360")).strip()
+    try:
+        return max(60.0, float(raw))
+    except ValueError:
+        return 360.0
+
+
+def require_image_api_key() -> str:
+    key = (os.environ.get("OPENAI_IMAGE_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError("MISSING_IMAGE_API_KEY")
+    return key
+
+
+def create_image_client() -> OpenAI:
+    return OpenAI(
+        api_key=require_image_api_key(),
+        base_url=openai_image_base_url(),
+        timeout=openai_image_timeout_seconds(),
+        max_retries=1,
     )
 
 
-def _image_model() -> str:
-    return (os.environ.get("OPENAI_IMAGE_MODEL") or "gpt-image-1").strip()
+def placeholder_hand_drawn_copy(photo_count: int) -> DayFrameCopyModel:
+    """手绘模板不调 chat 模型，返回可编辑的占位文案。"""
+    return DayFrameCopyModel(
+        title="今日随拍",
+        diary="",
+        captions=[f"第 {i + 1} 张" for i in range(photo_count)],
+        hashtags=["#生活记录", "#日常", "#DayFrame"],
+        sketches=None,
+    )
 
 
-def image_edit_enabled() -> bool:
-    """默认关闭：第三方网关多不支持 /images/edits，且极慢。开启需官方 Images API。"""
-    raw = (os.environ.get("HAND_DRAWN_USE_IMAGE_API") or "false").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+def _load_edit_prompt() -> str:
+    path = PROMPTS_DIR / "generate_plog.md"
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    return (
+        "Transform this photo into a premium scrapbook-style PLOG page. "
+        "Add hand-drawn white doodle annotations in Simplified Chinese. "
+        "Preserve the original photo composition."
+    )
 
 
-def _sketch_edit_enabled() -> bool:
-    return image_edit_enabled()
-
-
-def _prepare_png_bytes(path: Path) -> bytes:
-    raw = path.read_bytes()
-    img = Image.open(io.BytesIO(raw))
-    if img.mode not in ("RGB", "RGBA"):
-        img = img.convert("RGB")
-    elif img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg
-    img.thumbnail((MAX_EDIT_SIDE, MAX_EDIT_SIDE), Image.Resampling.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+def _image_edit_kwargs(prompt: str) -> dict:
+    quality = (os.environ.get("OPENAI_IMAGE_QUALITY") or "low").strip()
+    size = (os.environ.get("OPENAI_IMAGE_SIZE") or "1024x1024").strip()
+    return {
+        "model": IMAGE_MODEL,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+        "quality": quality,
+    }
 
 
 def _save_edited_bytes(upload_dir: Path, data: bytes) -> str:
@@ -73,28 +110,21 @@ def annotate_one_photo(client: OpenAI, upload_dir: Path, filename: str) -> str:
     if not path.is_file():
         raise FileNotFoundError(filename)
 
-    png_bytes = _prepare_png_bytes(path)
+    ext = path.suffix.lower().lstrip(".")
+    mime = _EXT_TO_MIME.get(ext)
+    if not mime:
+        raise ValueError(f"不支持的扩展名: {ext}")
+
     prompt = _load_edit_prompt()
-    model = _image_model()
+    kwargs = _image_edit_kwargs(prompt)
 
-    kwargs: dict = {
-        "model": model,
-        "image": ("source.png", png_bytes, "image/png"),
-        "prompt": prompt,
-        "quality": "high",
-    }
-    if model.startswith("gpt-image-1") and model != "gpt-image-1-mini":
-        kwargs["input_fidelity"] = "high"
-
-    try:
-        resp = client.images.edit(**kwargs)
-    except TypeError:
-        kwargs.pop("input_fidelity", None)
-        resp = client.images.edit(**kwargs)
-    except json.JSONDecodeError as e:
-        raise SketchAnnotateError(
-            "图像编辑接口返回非 JSON（中转网关可能不支持 /v1/images/edits）。"
-        ) from e
+    with path.open("rb") as image_file:
+        try:
+            resp = client.images.edit(image=image_file, **kwargs)
+        except json.JSONDecodeError as e:
+            raise SketchAnnotateError(
+                "图像编辑接口返回非 JSON，请确认 OPENAI_IMAGE_BASE_URL 为官方 API。"
+            ) from e
 
     data_list = getattr(resp, "data", None) or []
     if not data_list:
@@ -121,11 +151,7 @@ def annotate_sketch_photos(
     upload_dir: Path,
     filenames: list[str],
 ) -> list[str]:
-    if not _sketch_edit_enabled():
-        raise SketchAnnotateError("HAND_DRAWN_USE_IMAGE_API 已关闭")
-
     out: list[str] = []
-    errors: list[str] = []
     for name in filenames:
         try:
             out.append(annotate_one_photo(client, upload_dir, name))
@@ -136,11 +162,5 @@ def annotate_sketch_photos(
             SketchAnnotateError,
             json.JSONDecodeError,
         ) as e:
-            errors.append(f"{name}: {e!s}")
-
-    if errors:
-        raise SketchAnnotateError(
-            "部分或全部手绘标注图生成失败（网关可能不支持 gpt-image-1 /images/edits）。"
-            f" 详情: {'; '.join(errors[:3])}",
-        )
+            raise SketchAnnotateError(f"{name}: {e!s}") from e
     return out

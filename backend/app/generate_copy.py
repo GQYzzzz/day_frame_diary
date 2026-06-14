@@ -187,22 +187,9 @@ def _openai_timeout_seconds() -> float:
 
 
 def _load_system_prompt(template_id: str) -> str:
-    """从 prompts/ 目录加载对应模板的系统提示词文件。
-
-    根据 template_id 选择不同的提示词文件：
-    - hand-drawn-v1 → generate_hand_drawn_system.md（含手绘坐标要求）
-    - 其他 → generate_copy_system.md（纯文案）
-    文件不存在时返回内联 fallback 文本。
-    """
-    if template_id == "hand-drawn-v1":
-        path = PROMPTS_DIR / "generate_hand_drawn_system.md"
-        fallback = (
-            "你是手绘标注助手。只输出 JSON：title, diary, captions, hashtags, sketches。"
-            "每张图 sketches.callouts 至少 4 项，每项含 outline 点数组。"
-        )
-    else:
-        path = PROMPTS_DIR / "generate_copy_system.md"
-        fallback = "你是图文助手，只输出 JSON：title, diary, captions, hashtags。"
+    """从 prompts/ 目录加载对应模板的系统提示词文件。"""
+    path = PROMPTS_DIR / "generate_copy_system.md"
+    fallback = "你是图文助手，只输出 JSON：title, diary, captions, hashtags。"
     if not path.is_file():
         return fallback
     return path.read_text(encoding="utf-8")
@@ -261,18 +248,12 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     system = _load_system_prompt(req.template_id)
 
     image_parts = _image_parts(upload_dir, req.filenames)
-    extra = ""
-    if req.template_id == "hand-drawn-v1":
-        extra = (
-            f"\n手绘模板：顶层 JSON 必须同时包含 title、diary、captions、hashtags、sketches 五个字段。"
-            f"sketches 长度 {n}，每张 callouts≥4，每项 outline≥10 点。\n"
-        )
     user_text = (
         f"style_id: {req.style_id}\n"
         f"风格名称：{style_label}\n"
         f"template_id: {req.template_id}\n"
         f"图片数量：{n}\n"
-        f"{extra}\n"
+        f"\n"
         f"请根据以上 {n} 张图（按发送顺序）生成 JSON。"
         f"captions 必须恰好包含 {n} 个字符串，与图片一一对应。"
     )
@@ -292,7 +273,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ],
-        temperature=0.65 if req.template_id == "hand-drawn-v1" else 0.7,
+        temperature=0.7,
         max_tokens=_max_tokens_for_request(req.template_id, n),
     )
     raw, finish = _completion_text_and_finish(resp)
@@ -433,11 +414,7 @@ def _normalize_sketches(
     n: int,
     template_id: str,
 ) -> list[PhotoSketchModel] | None:
-    """规范 sketches 数据：统一类型、补齐缺失条目、裁剪超量条目。
-
-    只对 hand-drawn-v1 模板生效；其他模板返回 None。
-    确保返回的列表长度与图片数量 n 一致。
-    """
+    """规范 sketches 数据（仅 hand-drawn-v1 模板；该模板现已不走本模块）。"""
     if template_id != "hand-drawn-v1":
         return None
     items: list[PhotoSketchModel] = []

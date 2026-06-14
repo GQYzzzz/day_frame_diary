@@ -28,7 +28,7 @@ export function ProcessingOverlay({
     phase === "generating" && templateId === "hand-drawn-v1"
       ? {
           title: "AI 正在写文案并绘制手绘标注…",
-          hint: "含 gpt-image-1 图像编辑，每张约 1～3 分钟；网关不支持时会自动改用叠加模式。请勿关闭页面。",
+          hint: "官方 gpt-image-2 绘制定图，每张约 1～3 分钟。请勿关闭页面。",
         }
       : base[phase];
 
