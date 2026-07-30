@@ -12,6 +12,7 @@ export const TEMPLATE_PRESETS = [
   { id: "vertical-v1", label: "竖版长图" },
   { id: "polka-scrapbook-v1", label: "波点拼贴" },
   { id: "hand-drawn-v1", label: "手绘标注" },
+  { id: "image-collage-v1", label: "图片拼接" },
 ] as const;
 
 export type TemplateId = (typeof TEMPLATE_PRESETS)[number]["id"];

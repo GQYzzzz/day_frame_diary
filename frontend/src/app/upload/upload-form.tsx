@@ -179,7 +179,9 @@ export function UploadForm() {
               ? "竖版长图：标题 + 正文 + 照片纵向排列，生成与保存较快，适合日常长图。"
               : templateId === "polka-scrapbook-v1"
                 ? "波点拼贴：对角摆图 + 气泡穿插（保存历史时会内嵌图片，稍慢）。"
-                : "手绘标注：一次 gpt-4o-mini 看图并返回 JSON（英文标注+轮廓坐标），前端绘制白线边框；通常 1～2 分钟。可选开启图像编辑见 backend/.env。"}
+                : templateId === "hand-drawn-v1"
+                  ? "手绘标注：一次 gpt-4o-mini 看图并返回 JSON（英文标注+轮廓坐标），前端绘制白线边框；通常 1～2 分钟。可选开启图像编辑见 backend/.env。"
+                : "图片拼接：多张照片拼合成一张图片（待实现）。"}
           </p>
         </div>
 
