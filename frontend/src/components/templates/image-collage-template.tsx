@@ -39,7 +39,7 @@ export const ImageCollageTemplate = forwardRef<
           {row.photos.map((photo) => (
             <div
               key={`photo-${photo.index}`}
-              className="absolute overflow-hidden rounded-lg bg-white shadow-[0_4px_12px_-4px_rgba(0,0,0,0.2)]"
+              className="absolute overflow-hidden rounded-lg bg-zinc-100 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.2)]"
               style={{
                 left: photo.x,
                 top: photo.y,
@@ -52,7 +52,7 @@ export const ImageCollageTemplate = forwardRef<
               <img
                 src={photos[photo.index]}
                 alt={`照片 ${photo.index + 1}`}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
                 draggable={false}
               />
             </div>

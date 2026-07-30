@@ -45,6 +45,7 @@ export type LayoutHint = {
 
 export const PACK_DEFAULTS = {
   canvasWidth: 390,
+  canvasHeightMin: 500,
   padding: 16,
   rowGap: 16,
   photoGap: 8,
@@ -77,11 +78,11 @@ function shuffleIndices(n: number, seed: number): number[] {
   return idx;
 }
 
-/* 在照片周围尝试放置气泡 */
+/* 在照片周围尝试放置气泡（caption），支持略微重叠 */
 function placeBubble(
   text: string,
   photo: { x: number; y: number; w: number; h: number },
-  placed: { x: number; y: number; w: number; h: number }[],
+  obstacles: { x: number; y: number; w: number; h: number }[],
   canvasWidth: number,
   seed: number,
 ): PackedBubble | null {
@@ -90,8 +91,9 @@ function placeBubble(
 
   const gap = PACK_DEFAULTS.bubbleGap;
   const pad = PACK_DEFAULTS.padding;
+  const overlap = 6;
 
-  const candidates = [
+  const outerCandidates = [
     { x: photo.x + photo.w + gap, y: photo.y },
     { x: photo.x - w - gap, y: photo.y },
     { x: photo.x + photo.w / 2 - w / 2, y: photo.y - h - gap },
@@ -100,19 +102,26 @@ function placeBubble(
     { x: photo.x + gap, y: photo.y + photo.h + gap },
   ];
 
-  const clamped = candidates.map((c) => ({
-    x: Math.max(pad, Math.min(c.x, canvasWidth - pad - w)),
-    y: Math.max(pad, c.y),
-    w,
-    h,
-  }));
+  const overlapCandidates = [
+    { x: photo.x + photo.w - w + overlap, y: photo.y + overlap },
+    { x: photo.x + overlap, y: photo.y + photo.h - h - overlap },
+    { x: photo.x + photo.w - w / 2 - overlap, y: photo.y + overlap },
+    { x: photo.x + overlap, y: photo.y + overlap },
+  ];
 
-  for (const idx of shuffleIndices(clamped.length, seed)) {
-    const box = clamped[idx];
+  const candidates = [...outerCandidates, ...overlapCandidates];
+
+  for (const idx of shuffleIndices(candidates.length, seed)) {
+    const c = candidates[idx];
+    const box = {
+      x: Math.max(pad, Math.min(c.x, canvasWidth - pad - w)),
+      y: Math.max(pad, c.y),
+      w, h,
+    };
     if (box.x + box.w > canvasWidth - pad) continue;
     let hit = false;
-    for (const p of placed) {
-      if (boxesCollide(box, p, gap)) { hit = true; break; }
+    for (const p of obstacles) {
+      if (boxesCollide(box, p, 0)) { hit = true; break; }
     }
     if (!hit) return { ...box, text };
   }
@@ -131,7 +140,8 @@ function photoRotation(index: number, hasFaces: boolean): number {
  * 策略：
  * 1. 按 importance 降序排列照片索引
  * 2. 贪心跳行：从最重要开始，逐个加入直到宽度填满阈值
- * 3. 每行高度由该行照片的 aspectRatio 总和决定
+ * 3. ≤7 张时画布高度固定，行高由画布高度反推以铺满画布
+ * 4. >7 张时画布延伸，行高由照片 aspectRatio 决定
  */
 export function computeRowPack(
   count: number,
@@ -141,7 +151,7 @@ export function computeRowPack(
 ): RowPackResult {
   const opts = { ...PACK_DEFAULTS, ...options };
   const { canvasWidth, padding, rowGap, photoGap, rowFillThreshold,
-          rowHeightMin, rowHeightMax } = opts;
+          rowHeightMin, rowHeightMax, canvasHeightMin } = opts;
 
   if (count === 0) return { rows: [], canvasWidth, canvasHeight: 0 };
 
@@ -166,68 +176,140 @@ export function computeRowPack(
     .map((x) => x.idx);
 
   const rows: PackedRow[] = [];
-  const usedBBoxes: { x: number; y: number; w: number; h: number }[] = [];
 
   let cursor = 0;
   let currentY = padding;
 
+  /* 统一贪心分组：按重要度排序，逐行分配 */
+  const rowGroups: number[][] = [];
   while (cursor < count) {
-    const rowIndices: number[] = [];
+    const group: number[] = [];
     let sumAspect = 0;
-
-    /* 贪心收集：尽可能填满行宽 */
+    let groupMaxImp = 0;
     for (let j = cursor; j < count; j++) {
       const idx = sortedIndices[j];
       const hint = photoHints[idx];
       const testSum = sumAspect + hint.aspectRatio;
-      if (rowIndices.length > 0 && testSum * rowHeightMin > canvasWidth * rowFillThreshold) {
-        break;
-      }
-      rowIndices.push(idx);
+      if (group.length > 0 && testSum * rowHeightMin > canvasWidth * rowFillThreshold) break;
+      const newMaxImp = Math.max(groupMaxImp, hint.importance);
+      const maxInRow = newMaxImp > 0.7 ? 2 : 3;
+      if (group.length >= maxInRow) break;
+      group.push(idx);
       sumAspect += hint.aspectRatio;
-      if (rowIndices.length >= opts.maxRowPhotos) break;
+      groupMaxImp = newMaxImp;
+    }
+    rowGroups.push(group);
+    cursor += group.length;
+  }
+
+  const compact = rowGroups.length <= 3;
+
+  /* 计算每行的行高 */
+  let rowHeights: number[];
+  if (compact) {
+    /* ≤7 张：固定画布高度，行高取整铺满 */
+    const totalPhotoH = canvasHeightMin - padding * 2 - rowGap * (rowGroups.length - 1);
+    let baseH = Math.max(rowHeightMin, totalPhotoH / rowGroups.length);
+    rowHeights = rowGroups.map(() => baseH);
+    /* 第 1 轮：如果某行照片总宽超过可用宽度，缩小该行行高 */
+    for (let ri = 0; ri < rowGroups.length; ri++) {
+      const group = rowGroups[ri];
+      const gapTotal = photoGap * (group.length - 1);
+      const availW = canvasWidth - padding * 2 - gapTotal;
+      const totalPhotoW = group.reduce((s, idx) => s + rowHeights[ri] * photoHints[idx].aspectRatio, 0);
+      if (totalPhotoW > availW) {
+        const scale = availW / totalPhotoW;
+        rowHeights[ri] = Math.max(rowHeightMin, rowHeights[ri] * scale);
+      }
+    }
+    /* 第 2 轮：把第 1 轮未用完的垂直空间匀给没有溢出的行 */
+    const usedV = rowHeights.reduce((s, h) => s + h, 0) + rowGap * (rowGroups.length - 1);
+    const leftover = totalPhotoH - usedV;
+    if (leftover > 4) {
+      const adjustable = rowGroups.map((_, ri) => ri).filter((ri) => {
+        const group = rowGroups[ri];
+        const testH = rowHeights[ri] + leftover;
+        const w = group.reduce((s, idx) => s + testH * photoHints[idx].aspectRatio, 0);
+        const availW = canvasWidth - padding * 2 - photoGap * (group.length - 1);
+        return w <= availW + 1;
+      });
+      if (adjustable.length > 0) {
+        const extra = Math.floor(leftover / adjustable.length);
+        for (const ri of adjustable) rowHeights[ri] += extra;
+      }
+    }
+  } else {
+    /* >7 张：行高由 aspectRatio 总和决定（延伸画布） */
+    rowHeights = rowGroups.map((group) => {
+      const sumAspect = group.reduce((s, idx) => s + photoHints[idx].aspectRatio, 0);
+      const gapTotal = photoGap * (group.length - 1);
+      const availW = canvasWidth - padding * 2 - gapTotal;
+      const idealH = sumAspect > 0 ? availW / sumAspect : 200;
+      return Math.max(rowHeightMin, Math.min(idealH, rowHeightMax));
+    });
+  }
+
+  /* 第 1 轮：放置所有照片，收集全部照片位置 */
+  const allPhotoBoxes: { idx: number; box: { x: number; y: number; w: number; h: number } }[] = [];
+  for (let ri = 0; ri < rowGroups.length; ri++) {
+    const group = rowGroups[ri];
+    const rowHeight = rowHeights[ri];
+    const placedPhotos: PackedPhoto[] = [];
+
+    const photoWidths = group.map((idx) => Math.round(rowHeight * photoHints[idx].aspectRatio));
+    const totalContentW = photoWidths.reduce((s, w) => s + w, 0) + photoGap * (group.length - 1);
+    const availW = canvasWidth - padding * 2;
+    let photoX: number;
+    if (group.length === 1) {
+      photoX = Math.round((canvasWidth - photoWidths[0]) / 2);
+    } else if (compact && totalContentW < availW) {
+      const sidePad = padding + Math.round((availW - totalContentW) / 2);
+      photoX = sidePad;
+    } else {
+      photoX = padding;
     }
 
-    /* 计算行高 */
-    const idealHeight = sumAspect > 0 ? canvasWidth / sumAspect : 200;
-    const rowHeight = Math.max(rowHeightMin, Math.min(idealHeight, rowHeightMax));
-
-    /* 放置照片 */
-    const placedPhotos: PackedPhoto[] = [];
-    const bubbles: PackedBubble[] = [];
-
-    let photoX = padding;
-    for (const idx of rowIndices) {
-      const hint = photoHints[idx];
-      const pw = Math.round(rowHeight * hint.aspectRatio);
+    for (let pi = 0; pi < group.length; pi++) {
+      const idx = group[pi];
+      const pw = photoWidths[pi];
       const ph = Math.round(rowHeight);
-      const rotate = photoRotation(idx, hint.hasFaces);
+      const rotate = photoRotation(idx, photoHints[idx].hasFaces);
+      const box = { x: photoX, y: currentY, w: pw, h: ph };
 
-      const pbox = { x: photoX, y: currentY, w: pw, h: ph };
-      placedPhotos.push({ index: idx, x: photoX, y: currentY, w: pw, h: ph, rotate, aspectRatio: hint.aspectRatio });
-      usedBBoxes.push(pbox);
+      placedPhotos.push({ index: idx, x: photoX, y: currentY, w: pw, h: ph, rotate, aspectRatio: photoHints[idx].aspectRatio });
+      allPhotoBoxes.push({ idx, box });
 
       photoX += pw + photoGap;
-
-      /* 气泡 */
-      const caption = (captions[idx] ?? "").trim();
-      if (caption) {
-        const bubble = placeBubble(caption, pbox, usedBBoxes, canvasWidth, idx);
-        if (bubble) {
-          usedBBoxes.push(bubble);
-          bubbles.push(bubble);
-        }
-      }
     }
 
-    rows.push({ photos: placedPhotos, bubbles });
+    rows.push({ photos: placedPhotos, bubbles: [] });
     currentY += Math.round(rowHeight + rowGap);
-    cursor += rowIndices.length;
+  }
+
+  /* 第 2 轮：为每张照片放置气泡（已知全部照片位置，避免跨行重叠） */
+  const allBBoxes = allPhotoBoxes.map((p) => p.box);
+  for (let ri = 0; ri < rows.length; ri++) {
+    const bubbles: PackedBubble[] = [];
+    for (const photo of rows[ri].photos) {
+      const caption = (captions[photo.index] ?? "").trim();
+      if (!caption) continue;
+      const photoBox = { x: photo.x, y: photo.y, w: photo.w, h: photo.h };
+      /* 已知全部照片位置，但排除自己的照片（允许略微重叠） */
+      const others = allBBoxes.filter(
+        (b) => !(b.x === photoBox.x && b.y === photoBox.y && b.w === photoBox.w && b.h === photoBox.h),
+      );
+      const bubble = placeBubble(caption, photoBox, others, canvasWidth, photo.index);
+      if (bubble) {
+        allBBoxes.push(bubble);
+        bubbles.push(bubble);
+      }
+    }
+    rows[ri] = { ...rows[ri], bubbles };
   }
 
   return {
     rows,
     canvasWidth,
-    canvasHeight: Math.ceil(currentY - rowGap + padding),
+    canvasHeight: compact ? canvasHeightMin : Math.ceil(currentY - rowGap + padding),
   };
 }
