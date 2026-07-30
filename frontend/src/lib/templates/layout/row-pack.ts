@@ -208,7 +208,7 @@ export function computeRowPack(
   if (compact) {
     /* ≤3 行：固定画布高度，行高取整铺满 */
     const totalPhotoH = canvasHeightMin - padding * 2 - rowGap * (rowGroups.length - 1);
-    let baseH = Math.max(rowHeightMin, totalPhotoH / rowGroups.length);
+    const baseH = Math.max(rowHeightMin, totalPhotoH / rowGroups.length);
     rowHeights = rowGroups.map(() => baseH);
     /* 第 1 轮：如果某行照片总宽超过可用宽度，缩小该行行高 */
     for (let ri = 0; ri < rowGroups.length; ri++) {
