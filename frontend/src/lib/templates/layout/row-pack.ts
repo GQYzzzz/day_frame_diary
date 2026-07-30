@@ -24,6 +24,7 @@ export type PackedBubble = {
   y: number;
   w: number;
   h: number;
+  scale?: number;
 };
 
 export type PackedRow = {
@@ -56,13 +57,13 @@ export const PACK_DEFAULTS = {
   bubbleGap: 6,
 } as const;
 
-/* 气泡尺寸估算 */
-function estimateBubbleSize(text: string): { w: number; h: number } {
-  const charsPerLine = 14;
+/* 气泡尺寸估算（scale < 1 时缩小气泡） */
+function estimateBubbleSize(text: string, scale = 1): { w: number; h: number } {
+  const charsPerLine = Math.round(14 / scale);
   const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
   return {
-    w: Math.min(Math.max(text.length * 7 + 20, 72), 140),
-    h: Math.max(lines * 16 + 16, 32),
+    w: Math.round(Math.min(Math.max(text.length * 7 + 20, 72), 140) * scale),
+    h: Math.round(Math.max(lines * 16 + 16, 32) * scale),
   };
 }
 
@@ -85,46 +86,63 @@ function placeBubble(
   canvasWidth: number,
   seed: number,
 ): PackedBubble | null {
-  const { w, h } = estimateBubbleSize(text);
-  if (w <= 0 || h <= 0) return null;
-
-  const gap = PACK_DEFAULTS.bubbleGap;
   const pad = PACK_DEFAULTS.padding;
-  const overlap = 6;
+  const scales = [1, 0.85, 0.7];
 
-  const outerCandidates = [
-    { x: photo.x + photo.w + gap, y: photo.y },
-    { x: photo.x - w - gap, y: photo.y },
-    { x: photo.x + photo.w / 2 - w / 2, y: photo.y - h - gap },
-    { x: photo.x + photo.w / 2 - w / 2, y: photo.y + photo.h + gap },
-    { x: photo.x + photo.w - w - gap, y: photo.y - h - gap },
-    { x: photo.x + gap, y: photo.y + photo.h + gap },
-  ];
+  for (const scale of scales) {
+    const { w, h } = estimateBubbleSize(text, scale);
+    if (w <= 0 || h <= 0) continue;
 
-  const overlapCandidates = [
-    { x: photo.x + photo.w - w + overlap, y: photo.y + overlap },
-    { x: photo.x + overlap, y: photo.y + photo.h - h - overlap },
-    { x: photo.x + photo.w - w / 2 - overlap, y: photo.y + overlap },
-    { x: photo.x + overlap, y: photo.y + overlap },
-  ];
+    const gap = PACK_DEFAULTS.bubbleGap;
+    const overlap = 6;
 
-  const candidates = [...outerCandidates, ...overlapCandidates];
+    const outerCandidates = [
+      { x: photo.x + photo.w + gap, y: photo.y },
+      { x: photo.x - w - gap, y: photo.y },
+      { x: photo.x + photo.w / 2 - w / 2, y: photo.y - h - gap },
+      { x: photo.x + photo.w / 2 - w / 2, y: photo.y + photo.h + gap },
+      { x: photo.x + photo.w - w - gap, y: photo.y - h - gap },
+      { x: photo.x + gap, y: photo.y + photo.h + gap },
+    ];
 
-  for (const idx of shuffleIndices(candidates.length, seed)) {
-    const c = candidates[idx];
-    const box = {
-      x: Math.max(pad, Math.min(c.x, canvasWidth - pad - w)),
-      y: Math.max(pad, c.y),
-      w, h,
-    };
-    if (box.x + box.w > canvasWidth - pad) continue;
-    let hit = false;
-    for (const p of obstacles) {
-      if (boxesCollide(box, p, 0)) { hit = true; break; }
+    const overlapCandidates = [
+      { x: photo.x + photo.w - w + overlap, y: photo.y + overlap },
+      { x: photo.x + overlap, y: photo.y + photo.h - h - overlap },
+      { x: photo.x + photo.w - w / 2 - overlap, y: photo.y + overlap },
+      { x: photo.x + overlap, y: photo.y + overlap },
+    ];
+
+    const candidates = [...outerCandidates, ...overlapCandidates];
+
+    for (const idx of shuffleIndices(candidates.length, seed)) {
+      const c = candidates[idx];
+      const box = {
+        x: Math.max(pad, Math.min(c.x, canvasWidth - pad - w)),
+        y: Math.max(pad, c.y),
+        w, h,
+      };
+      if (box.x + box.w > canvasWidth - pad) continue;
+      let hit = false;
+      for (const p of obstacles) {
+        if (boxesCollide(box, p, 0)) { hit = true; break; }
+      }
+      if (!hit) return { ...box, text, scale };
     }
-    if (!hit) return { ...box, text };
   }
-  return null;
+
+  /* 最后保障：覆盖在照片底部的 inline caption */
+  const { w: fw, h: fh } = estimateBubbleSize(text, 0.7);
+  const minSize = 40;
+  const fbW = Math.max(minSize, Math.min(fw, photo.w - 4));
+  const fbH = Math.max(minSize, Math.min(fh, photo.h * 0.7));
+  return {
+    x: Math.max(pad, Math.min(photo.x + 2, canvasWidth - pad - fbW)),
+    y: Math.max(pad, photo.y + photo.h - fbH),
+    w: fbW,
+    h: fbH,
+    text,
+    scale: 0.7,
+  };
 }
 
 /** 照片微旋转（含人脸的不旋转） */

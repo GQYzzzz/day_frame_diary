@@ -60,11 +60,12 @@ export const ImageCollageTemplate = forwardRef<
           {row.bubbles.map((bubble, bi) => (
             <div
               key={`bubble-${ri}-${bi}`}
-              className="absolute rounded-xl border border-zinc-300 bg-white/95 px-2.5 py-1.5 text-[11px] leading-snug text-zinc-800 shadow-[1px_2px_0_rgba(0,0,0,0.08)]"
+              className="absolute rounded-xl border border-zinc-300 bg-white/95 px-2.5 py-1.5 leading-snug text-zinc-800 shadow-[1px_2px_0_rgba(0,0,0,0.08)]"
               style={{
                 left: bubble.x,
                 top: bubble.y,
                 width: bubble.w,
+                fontSize: (bubble.scale ?? 1) * 11,
                 zIndex: 50 + ri * 10 + bi,
               }}
             >
