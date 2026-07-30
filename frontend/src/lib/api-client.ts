@@ -2,6 +2,7 @@ import { getApiBase } from "@/lib/api";
 import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import type {
   DayFrameCopy,
+  LayoutHint,
   SketchRenderMode,
   StyleId,
   TemplateId,
@@ -158,6 +159,12 @@ export async function generateCopy(
   while (copy.captions.length < filenames.length) {
     copy.captions.push(`第 ${copy.captions.length + 1} 张`);
   }
+
+  const rawHints = copyPayload.layout_hints;
+  if (Array.isArray(rawHints) && rawHints.length === filenames.length) {
+    copy.layoutHints = rawHints as LayoutHint[];
+  }
+
   const mode = body.sketch_render_mode;
   const sketchRenderMode: SketchRenderMode | undefined =
     mode === "image" || mode === "overlay" ? mode : undefined;

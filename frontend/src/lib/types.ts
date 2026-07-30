@@ -24,6 +24,13 @@ export function templateNeedsEmbeddedPhotos(templateId: TemplateId): boolean {
   return templateId === "polka-scrapbook-v1" || templateId === "hand-drawn-v1";
 }
 
+export type LayoutHint = {
+  importance: number;
+  subjectType: "portrait" | "group" | "food" | "landscape" | "object" | "other";
+  hasFaces: boolean;
+  aspectRatio: number;
+};
+
 export type SketchDecoration = "heart" | "sparkle" | "steam" | "smile" | "star";
 
 export type SketchOutlinePoint = { x: number; y: number };
@@ -57,6 +64,7 @@ export type DayFrameCopy = {
   hashtags: string[];
   /** 手绘模板：每张图的英文标注与坐标 */
   sketches?: PhotoSketch[];
+  layoutHints?: LayoutHint[];
 };
 
 /** 手绘：image=OpenAI 直接出标注图；overlay=前端 SVG 回退 */
