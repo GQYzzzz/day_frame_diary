@@ -20,6 +20,7 @@ from app.json_repair import parse_json_object
 from app.schemas import (
     DayFrameCopyModel,
     GenerateRequest,
+    LayoutHintModel,
     PhotoSketchModel,
     SketchCalloutModel,
 )
@@ -120,6 +121,7 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         "captions": captions,
         "hashtags": hashtags,
         "sketches": sketches_raw,
+        "layout_hints": merged.get("layout_hints"),
     }
 
 
@@ -188,7 +190,10 @@ def _openai_timeout_seconds() -> float:
 
 def _load_system_prompt(template_id: str) -> str:
     """从 prompts/ 目录加载对应模板的系统提示词文件。"""
-    path = PROMPTS_DIR / "generate_copy_system.md"
+    if template_id == "image-collage-v1":
+        path = PROMPTS_DIR / "generate_collage_system.md"
+    else:
+        path = PROMPTS_DIR / "generate_copy_system.md"
     fallback = "你是图文助手，只输出 JSON：title, diary, captions, hashtags。"
     if not path.is_file():
         return fallback
@@ -282,6 +287,9 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
         pass
     data = _coerce_dayframe_payload(_parse_model_json(raw), n)
 
+    # 提前弹出 layout_hints，由下面的手动循环做逐项容错解析
+    layout_hints_raw = data.pop("layout_hints", None)
+
     # Pydantic 校验，确保字段类型和格式正确
     try:
         copy = DayFrameCopyModel.model_validate(data)
@@ -298,12 +306,27 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
     sketches = _normalize_sketches(copy.sketches, n, req.template_id)
 
+    layout_hints: list[LayoutHintModel] | None = None
+    if isinstance(layout_hints_raw, list) and len(layout_hints_raw) == n:
+        hints = []
+        for item in layout_hints_raw:
+            if isinstance(item, dict):
+                try:
+                    hints.append(LayoutHintModel.model_validate(item))
+                except ValidationError:
+                    hints.append(LayoutHintModel())
+            else:
+                hints.append(LayoutHintModel())
+        if len(hints) == n:
+            layout_hints = hints
+
     return DayFrameCopyModel(
         title=copy.title,
         diary=copy.diary,
         captions=caps,
         hashtags=copy.hashtags,
         sketches=sketches,
+        layout_hints=layout_hints,
     )
 
 

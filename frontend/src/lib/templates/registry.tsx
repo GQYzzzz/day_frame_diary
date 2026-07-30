@@ -2,6 +2,7 @@
 
 import type { ComponentType, Ref } from "react";
 import { HandDrawnDiaryTemplate } from "@/components/templates/hand-drawn/hand-drawn-diary-template";
+import { ImageCollageTemplate } from "@/components/templates/image-collage-template";
 import { PolkaScrapbookTemplate } from "@/components/templates/scrapbook/polka-scrapbook-template";
 import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import {
@@ -49,6 +50,13 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
     previewWidth: 390,
     exportBackground: "#0f0f0f",
     Component: HandDrawnDiaryTemplate,
+  },
+  "image-collage-v1": {
+    id: "image-collage-v1",
+    label: "图片拼接",
+    previewWidth: 390,
+    exportBackground: "#ffffff",
+    Component: ImageCollageTemplate,
   },
 };
 

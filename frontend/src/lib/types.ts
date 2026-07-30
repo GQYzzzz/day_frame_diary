@@ -12,6 +12,7 @@ export const TEMPLATE_PRESETS = [
   { id: "vertical-v1", label: "竖版长图" },
   { id: "polka-scrapbook-v1", label: "波点拼贴" },
   { id: "hand-drawn-v1", label: "手绘标注" },
+  { id: "image-collage-v1", label: "图片拼接" },
 ] as const;
 
 export type TemplateId = (typeof TEMPLATE_PRESETS)[number]["id"];
@@ -22,6 +23,13 @@ export const DEFAULT_TEMPLATE_ID: TemplateId = "vertical-v1";
 export function templateNeedsEmbeddedPhotos(templateId: TemplateId): boolean {
   return templateId === "polka-scrapbook-v1" || templateId === "hand-drawn-v1";
 }
+
+export type LayoutHint = {
+  importance: number;
+  subjectType: "portrait" | "group" | "food" | "landscape" | "object" | "other";
+  hasFaces: boolean;
+  aspectRatio: number;
+};
 
 export type SketchDecoration = "heart" | "sparkle" | "steam" | "smile" | "star";
 
@@ -56,6 +64,7 @@ export type DayFrameCopy = {
   hashtags: string[];
   /** 手绘模板：每张图的英文标注与坐标 */
   sketches?: PhotoSketch[];
+  layoutHints?: LayoutHint[];
 };
 
 /** 手绘：image=OpenAI 直接出标注图；overlay=前端 SVG 回退 */
