@@ -49,8 +49,7 @@ export const PACK_DEFAULTS = {
   padding: 16,
   rowGap: 16,
   photoGap: 8,
-  minRowPhotos: 1,
-  maxRowPhotos: 4,
+
   rowFillThreshold: 0.82,
   rowHeightMin: 60,
   rowHeightMax: 320,
@@ -140,8 +139,8 @@ function photoRotation(index: number, hasFaces: boolean): number {
  * 策略：
  * 1. 按 importance 降序排列照片索引
  * 2. 贪心跳行：从最重要开始，逐个加入直到宽度填满阈值
- * 3. ≤7 张时画布高度固定，行高由画布高度反推以铺满画布
- * 4. >7 张时画布延伸，行高由照片 aspectRatio 决定
+ * 3. ≤3 行时画布高度固定，行高由画布高度反推以铺满画布
+ * 4. >3 行时画布延伸，行高由照片 aspectRatio 决定
  */
 export function computeRowPack(
   count: number,
@@ -207,7 +206,7 @@ export function computeRowPack(
   /* 计算每行的行高 */
   let rowHeights: number[];
   if (compact) {
-    /* ≤7 张：固定画布高度，行高取整铺满 */
+    /* ≤3 行：固定画布高度，行高取整铺满 */
     const totalPhotoH = canvasHeightMin - padding * 2 - rowGap * (rowGroups.length - 1);
     let baseH = Math.max(rowHeightMin, totalPhotoH / rowGroups.length);
     rowHeights = rowGroups.map(() => baseH);
@@ -239,7 +238,7 @@ export function computeRowPack(
       }
     }
   } else {
-    /* >7 张：行高由 aspectRatio 总和决定（延伸画布） */
+    /* >3 行：行高由 aspectRatio 总和决定（延伸画布） */
     rowHeights = rowGroups.map((group) => {
       const sumAspect = group.reduce((s, idx) => s + photoHints[idx].aspectRatio, 0);
       const gapTotal = photoGap * (group.length - 1);
