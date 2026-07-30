@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 _STYLE_RE = re.compile(r"^(xiaohongshu|travel|literary|minimal|moments)$")
 _TEMPLATE_RE = re.compile(
-    r"^(vertical-v1|polka-scrapbook-v1|hand-drawn-v1)$",
+    r"^(vertical-v1|polka-scrapbook-v1|hand-drawn-v1|image-collage-v1)$",
 )
 _FILENAME_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z]+$",
@@ -115,9 +115,22 @@ class PhotoSketchModel(BaseModel):
         return _clamp01(v)
 
 
+class LayoutHintModel(BaseModel):
+    importance: float = 0.5
+    subject_type: str = "other"
+    has_faces: bool = False
+    aspect_ratio: float = 1.0
+
+    @field_validator("importance")
+    @classmethod
+    def clamp_importance(cls, v: float) -> float:
+        return max(0.0, min(1.0, float(v)))
+
+
 class DayFrameCopyModel(BaseModel):
     title: str
     diary: str
     captions: list[str]
     hashtags: list[str]
     sketches: list[PhotoSketchModel] | None = None
+    layout_hints: list[LayoutHintModel] | None = None
