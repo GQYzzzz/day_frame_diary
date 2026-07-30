@@ -121,6 +121,7 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         "captions": captions,
         "hashtags": hashtags,
         "sketches": sketches_raw,
+        "layout_hints": merged.get("layout_hints"),
     }
 
 
@@ -286,6 +287,9 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
         pass
     data = _coerce_dayframe_payload(_parse_model_json(raw), n)
 
+    # 提前弹出 layout_hints，由下面的手动循环做逐项容错解析
+    layout_hints_raw = data.pop("layout_hints", None)
+
     # Pydantic 校验，确保字段类型和格式正确
     try:
         copy = DayFrameCopyModel.model_validate(data)
@@ -302,7 +306,6 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
     sketches = _normalize_sketches(copy.sketches, n, req.template_id)
 
-    layout_hints_raw = data.get("layout_hints")
     layout_hints: list[LayoutHintModel] | None = None
     if isinstance(layout_hints_raw, list) and len(layout_hints_raw) == n:
         hints = []
