@@ -59,11 +59,12 @@ export function UploadForm() {
       const filenames = items.map((i) => i.filename);
 
       setPhase("generating");
-      const { copy, annotatedPhotos, sketchRenderMode } = await generateCopy(
-        styleId,
-        filenames,
-        templateId,
-      );
+      const {
+        copy,
+        annotatedPhotos,
+        sketchRenderMode,
+        cutoutAssets,
+      } = await generateCopy(styleId, filenames, templateId);
 
       const displayPhotos = annotatedPhotos ?? photos;
       const session = {
@@ -71,10 +72,13 @@ export function UploadForm() {
         styleId,
         templateId,
         photos: displayPhotos,
+        uploadedFilenames: filenames,
         originalPhotos: annotatedPhotos ? photos : undefined,
         sketchRenderMode:
           templateId === "hand-drawn-v1" ? sketchRenderMode : undefined,
         copy,
+        photoAnalyses: copy.photoAnalyses,
+        cutoutAssets,
         createdAt: Date.now(),
       };
       saveDayFrameSession(session);
@@ -181,7 +185,9 @@ export function UploadForm() {
                 ? "波点拼贴：对角摆图 + 气泡穿插（保存历史时会内嵌图片，稍慢）。"
                 : templateId === "hand-drawn-v1"
                   ? "手绘标注：一次 gpt-4o-mini 看图并返回 JSON（英文标注+轮廓坐标），前端绘制白线边框；通常 1～2 分钟。可选开启图像编辑见 backend/.env。"
-                  : "图片拼接：双列交错排列，每张照片配一个说明气泡；1-7 张自适应画布，8 张以上拉长画布。"}
+                  : templateId === "image-collage-v1"
+                    ? "图片拼接：双列交错排列，每张照片配一个说明气泡；按内容重要度自动调整画布。"
+                    : "黑板手账：自动选择主图与抠图，使用自适应拼贴、粉笔手写字、纸胶带和内容感知涂鸦。"}
           </p>
         </div>
 

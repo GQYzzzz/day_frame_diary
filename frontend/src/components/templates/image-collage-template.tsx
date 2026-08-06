@@ -49,6 +49,8 @@ export const ImageCollageTemplate = forwardRef<
                 zIndex: 10 + photo.index,
               }}
             >
+              {/* 原图来自用户上传，需保留动态尺寸和本地代理地址。 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={photos[photo.index]}
                 alt={`照片 ${photo.index + 1}`}

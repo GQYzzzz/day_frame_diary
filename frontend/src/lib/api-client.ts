@@ -1,8 +1,14 @@
 import { getApiBase } from "@/lib/api";
 import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import type {
+  CutoutAsset,
   DayFrameCopy,
   LayoutHint,
+  PhotoAnalysis,
+  PhotoLayoutRole,
+  PhotoOrientation,
+  PhotoRenderMode,
+  PhotoSubjectType,
   SketchRenderMode,
   StyleId,
   TemplateId,
@@ -12,9 +18,170 @@ export type GenerateResult = {
   copy: DayFrameCopy;
   annotatedPhotos?: string[];
   sketchRenderMode?: SketchRenderMode;
+  cutoutAssets?: CutoutAsset[];
 };
 
 const UPLOAD_TIMEOUT_MS = 60_000;
+const PHOTO_SUBJECT_TYPES = new Set<PhotoSubjectType>([
+  "portrait",
+  "group",
+  "food",
+  "landscape",
+  "object",
+  "other",
+]);
+const PHOTO_RENDER_MODES = new Set<PhotoRenderMode>([
+  "frame",
+  "cutout",
+  "hero",
+]);
+const PHOTO_ORIENTATIONS = new Set<PhotoOrientation>([
+  "portrait",
+  "landscape",
+  "square",
+]);
+const PHOTO_LAYOUT_ROLES = new Set<PhotoLayoutRole>([
+  "hero",
+  "support",
+  "detail",
+]);
+const CUTOUT_STATUSES = new Set<CutoutAsset["status"]>([
+  "pending",
+  "ready",
+  "failed",
+  "skipped",
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeSubjectType(value: unknown): PhotoSubjectType {
+  return typeof value === "string" &&
+    PHOTO_SUBJECT_TYPES.has(value as PhotoSubjectType)
+    ? (value as PhotoSubjectType)
+    : "other";
+}
+
+function normalizeRenderMode(value: unknown): PhotoRenderMode {
+  return typeof value === "string" &&
+    PHOTO_RENDER_MODES.has(value as PhotoRenderMode)
+    ? (value as PhotoRenderMode)
+    : "frame";
+}
+
+function normalizeOrientation(value: unknown): PhotoOrientation {
+  return typeof value === "string" &&
+    PHOTO_ORIENTATIONS.has(value as PhotoOrientation)
+    ? (value as PhotoOrientation)
+    : "square";
+}
+
+function normalizeLayoutRole(value: unknown): PhotoLayoutRole {
+  return typeof value === "string" &&
+    PHOTO_LAYOUT_ROLES.has(value as PhotoLayoutRole)
+    ? (value as PhotoLayoutRole)
+    : "detail";
+}
+
+function normalizeLayoutHint(value: unknown): LayoutHint | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+  const aspectRatio = finiteNumber(
+    raw.aspectRatio ?? raw.aspect_ratio,
+    1,
+  );
+  return {
+    importance: clamp01(finiteNumber(raw.importance, 0.5)),
+    subjectType: normalizeSubjectType(
+      raw.subjectType ?? raw.subject_type,
+    ),
+    hasFaces:
+      typeof (raw.hasFaces ?? raw.has_faces) === "boolean"
+        ? Boolean(raw.hasFaces ?? raw.has_faces)
+        : false,
+    aspectRatio: aspectRatio > 0 ? aspectRatio : 1,
+  };
+}
+
+function normalizePhotoAnalysis(
+  value: unknown,
+  fallbackIndex: number,
+): PhotoAnalysis | null {
+  const raw = asRecord(value);
+  const hint = normalizeLayoutHint(value);
+  if (!raw || !hint) return null;
+
+  const width = finiteNumber(raw.width, 0);
+  const height = finiteNumber(raw.height, 0);
+  const capturedAt = raw.capturedAt ?? raw.captured_at;
+  const subjectSummary = raw.subjectSummary ?? raw.subject_summary;
+  return {
+    ...hint,
+    index: Math.max(0, Math.trunc(finiteNumber(raw.index, fallbackIndex))),
+    width: width > 0 ? Math.trunc(width) : undefined,
+    height: height > 0 ? Math.trunc(height) : undefined,
+    orientation: normalizeOrientation(raw.orientation),
+    capturedAt:
+      typeof capturedAt === "string" && capturedAt ? capturedAt : undefined,
+    subjectSummary:
+      typeof subjectSummary === "string" ? subjectSummary.slice(0, 120) : "",
+    focalX: clamp01(finiteNumber(raw.focalX ?? raw.focal_x, 0.5)),
+    focalY: clamp01(finiteNumber(raw.focalY ?? raw.focal_y, 0.5)),
+    recommendedRender: normalizeRenderMode(
+      raw.recommendedRender ?? raw.recommended_render,
+    ),
+    layoutRole: normalizeLayoutRole(raw.layoutRole ?? raw.layout_role),
+  };
+}
+
+function normalizeCutoutAsset(
+  value: unknown,
+  fallbackIndex: number,
+): CutoutAsset | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+  const photoIndex = finiteNumber(
+    raw.photoIndex ?? raw.photo_index,
+    fallbackIndex,
+  );
+  const rawStatus = raw.status;
+  const status =
+    typeof rawStatus === "string" &&
+    CUTOUT_STATUSES.has(rawStatus as CutoutAsset["status"])
+      ? (rawStatus as CutoutAsset["status"])
+      : "failed";
+  const rawBounds = asRecord(raw.subjectBounds ?? raw.subject_bounds);
+  const subjectBounds = rawBounds
+    ? {
+        x: clamp01(finiteNumber(rawBounds.x, 0)),
+        y: clamp01(finiteNumber(rawBounds.y, 0)),
+        width: clamp01(finiteNumber(rawBounds.width, 0)),
+        height: clamp01(finiteNumber(rawBounds.height, 0)),
+      }
+    : undefined;
+  return {
+    photoIndex: Math.max(0, Math.trunc(photoIndex)),
+    status,
+    url: typeof raw.url === "string" ? raw.url : undefined,
+    maskUrl:
+      typeof (raw.maskUrl ?? raw.mask_url) === "string"
+        ? String(raw.maskUrl ?? raw.mask_url)
+        : undefined,
+    subjectBounds,
+    error: typeof raw.error === "string" ? raw.error : undefined,
+  };
+}
 
 /** 多图 + 第三方网关常需 3～6 分钟；单图实测也曾超过 3 分钟 */
 function getGenerateTimeoutMs(): number {
@@ -118,11 +285,13 @@ export async function generateCopy(
   styleId: StyleId,
   filenames: string[],
   templateId: TemplateId,
+  options?: { includeCutouts?: boolean },
 ): Promise<GenerateResult> {
   const result = await fetchJson<{
     copy?: Record<string, unknown>;
     annotated_photos?: string[];
     sketch_render_mode?: string;
+    cutout_assets?: unknown[];
   }>(
     `${getApiBase()}/api/v1/generate`,
     {
@@ -132,6 +301,7 @@ export async function generateCopy(
         style_id: styleId,
         template_id: templateId,
         filenames,
+        include_cutouts: options?.includeCutouts ?? true,
       }),
     },
     getGenerateTimeoutMs(),
@@ -162,7 +332,22 @@ export async function generateCopy(
 
   const rawHints = copyPayload.layout_hints;
   if (Array.isArray(rawHints) && rawHints.length === filenames.length) {
-    copy.layoutHints = rawHints as LayoutHint[];
+    const hints = rawHints.map(normalizeLayoutHint);
+    if (hints.every((hint): hint is LayoutHint => hint !== null)) {
+      copy.layoutHints = hints;
+    }
+  }
+
+  const rawAnalyses = copyPayload.photo_analyses;
+  if (Array.isArray(rawAnalyses) && rawAnalyses.length === filenames.length) {
+    const analyses = rawAnalyses.map(normalizePhotoAnalysis);
+    if (
+      analyses.every(
+        (analysis): analysis is PhotoAnalysis => analysis !== null,
+      )
+    ) {
+      copy.photoAnalyses = analyses;
+    }
   }
 
   const mode = body.sketch_render_mode;
@@ -179,5 +364,14 @@ export async function generateCopy(
       ? annotated
       : undefined;
 
-  return { copy, annotatedPhotos, sketchRenderMode };
+  const rawCutouts = body.cutout_assets;
+  let cutoutAssets: CutoutAsset[] | undefined;
+  if (Array.isArray(rawCutouts)) {
+    const normalized = rawCutouts.map(normalizeCutoutAsset);
+    if (normalized.every((item): item is CutoutAsset => item !== null)) {
+      cutoutAssets = normalized;
+    }
+  }
+
+  return { copy, annotatedPhotos, sketchRenderMode, cutoutAssets };
 }

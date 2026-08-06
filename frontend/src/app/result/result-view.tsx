@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChalkboardLayoutEditor } from "@/components/chalkboard-layout-editor";
+import { PhotoAnalysisPanel } from "@/components/photo-analysis-panel";
+import { generateCopy } from "@/lib/api-client";
 import { exportElementToPng } from "@/lib/export-card";
 import { updateCurrentHistoryEntry } from "@/lib/history";
 import { loadDayFrameSession, saveDayFrameSession } from "@/lib/session";
 import { buildFallbackSketch } from "@/lib/sketch/fallback-sketch";
 import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
+import { computeChalkboardLayout } from "@/lib/templates/chalkboard/compute-chalkboard-layout";
 import {
   normalizeTemplateId,
   TEMPLATE_REGISTRY,
@@ -16,59 +20,178 @@ import { STYLE_PRESETS } from "@/lib/types";
 import type {
   DayFrameCopy,
   DayFrameSessionV1,
+  PhotoAnalysis,
+  PhotoLayoutNode,
+  PhotoRenderModeOverrides,
   PhotoSketch,
   TemplateId,
+  TemplateLayout,
 } from "@/lib/types";
 
 function styleLabel(id: DayFrameSessionV1["styleId"]) {
   return STYLE_PRESETS.find((s) => s.id === id)?.label ?? id;
 }
 
+function analysesWithHero(
+  analyses: PhotoAnalysis[],
+  heroIndex: number,
+): PhotoAnalysis[] {
+  const supportCount = analyses.length <= 1 ? 0 : analyses.length <= 4 ? 1 : 2;
+  const others = analyses
+    .filter((item) => item.index !== heroIndex)
+    .sort((a, b) => b.importance - a.importance);
+  const supportIndexes = new Set(
+    others.slice(0, supportCount).map((item) => item.index),
+  );
+  return analyses.map((item) => ({
+    ...item,
+    importance: item.index === heroIndex ? 1 : item.importance,
+    layoutRole:
+      item.index === heroIndex
+        ? "hero"
+        : supportIndexes.has(item.index)
+          ? "support"
+          : "detail",
+  }));
+}
+
+function layoutWithUpdatedNode(
+  layout: TemplateLayout,
+  photoIndex: number,
+  update: (node: PhotoLayoutNode) => PhotoLayoutNode,
+): TemplateLayout {
+  const nodes = layout.nodes.map((node) =>
+    node.nodeType === "photo" && node.photoIndex === photoIndex
+      ? update(node)
+      : node,
+  );
+  const bottom = Math.max(...nodes.map((node) => node.y + node.height));
+  return {
+    ...layout,
+    nodes,
+    canvasHeight: Math.max(layout.canvasHeight, Math.ceil(bottom + 16)),
+  };
+}
+
+function initialCopyForSession(
+  session: DayFrameSessionV1 | null,
+): DayFrameCopy | null {
+  if (!session) return null;
+  const copy = session.copy;
+  if (session.templateId !== "hand-drawn-v1") return copy;
+  const count = session.photos.length;
+  const hasSketches =
+    copy.sketches &&
+    copy.sketches.length === count &&
+    copy.sketches.some((sketch) => sketch.callouts.length > 0 || sketch.summary);
+  if (hasSketches) return copy;
+  const sketches =
+    copy.sketches && copy.sketches.length > 0
+      ? normalizeSketches(copy.sketches, count)
+      : session.photos.map((_, index) =>
+          buildFallbackSketch(copy.captions[index] ?? "", index),
+        );
+  return { ...copy, sketches };
+}
+
 export function ResultView() {
   const cardRef = useRef<HTMLDivElement>(null);
   const session = useMemo(() => loadDayFrameSession(), []);
   const [copy, setCopy] = useState<DayFrameCopy | null>(
-    () => session?.copy ?? null,
+    () => initialCopyForSession(session),
   );
-  const [templateId, setTemplateId] = useState<TemplateId>(() =>
+  const [templateId] = useState<TemplateId>(() =>
     normalizeTemplateId(session?.templateId),
   );
   const [layoutSeed, setLayoutSeed] = useState(
-    () => session?.createdAt ?? Date.now(),
+    () => session?.layoutSeed ?? session?.createdAt ?? Date.now(),
+  );
+  const [layoutOverride, setLayoutOverride] = useState<
+    TemplateLayout | undefined
+  >(() => session?.layout);
+  const [renderModeOverrides, setRenderModeOverrides] =
+    useState<PhotoRenderModeOverrides>(
+      () => session?.renderModeOverrides ?? {},
+    );
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(
+    null,
   );
   const [hashtagsText, setHashtagsText] = useState(
     () => session?.copy?.hashtags.join(" ") ?? "",
   );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [regeneratingCopy, setRegeneratingCopy] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   const templateEntry = TEMPLATE_REGISTRY[templateId];
   const TemplateComponent = templateEntry.Component;
   const previewWidth = templateEntry.previewWidth;
-
-  useEffect(() => {
-    if (!session || templateId !== "hand-drawn-v1" || !copy) return;
-    const n = session.photos.length;
-    const hasSketches =
-      copy.sketches &&
-      copy.sketches.length === n &&
-      copy.sketches.some((s) => s.callouts.length > 0 || s.summary);
-    if (hasSketches) return;
-    const sketches =
-      copy.sketches && copy.sketches.length > 0
-        ? normalizeSketches(copy.sketches, n)
-        : session.photos.map((_, i) =>
-            buildFallbackSketch(copy.captions[i] ?? "", i),
-          );
-    setCopy({ ...copy, sketches });
-  }, [session, templateId]);
+  const generatedChalkboardLayout = useMemo(() => {
+    if (
+      !session ||
+      !copy ||
+      templateId !== "chalkboard-collage-v1"
+    ) {
+      return undefined;
+    }
+    return computeChalkboardLayout({
+      photoCount: session.photos.length,
+      analyses: copy.photoAnalyses,
+      cutoutAssets: session.cutoutAssets,
+      captions: copy.captions,
+      renderModeOverrides,
+      seed: layoutSeed,
+    });
+  }, [session, copy, templateId, renderModeOverrides, layoutSeed]);
+  const activeLayout =
+    templateId === "chalkboard-collage-v1"
+      ? layoutOverride ?? generatedChalkboardLayout
+      : undefined;
+  const selectedNode = activeLayout?.nodes.find(
+    (node): node is PhotoLayoutNode =>
+      node.nodeType === "photo" &&
+      node.photoIndex === selectedPhotoIndex,
+  );
+  const regenerateFilenames = useMemo(() => {
+    if (!session) return [];
+    if (session.uploadedFilenames?.length === session.photos.length) {
+      return session.uploadedFilenames;
+    }
+    const derived = session.photos.map((photo) => {
+      const match = /\/api\/uploads\/([^/?#]+)/.exec(photo);
+      return match?.[1] ?? "";
+    });
+    return derived.every(Boolean) ? derived : [];
+  }, [session]);
 
   useEffect(() => {
     if (!session || !copy) return;
-    const next: DayFrameSessionV1 = { ...session, copy, templateId };
+    const next: DayFrameSessionV1 = {
+      ...session,
+      copy,
+      templateId,
+      photoAnalyses: copy.photoAnalyses,
+      layoutSeed,
+      renderModeOverrides,
+      layout: layoutOverride,
+    };
     saveDayFrameSession(next);
-    updateCurrentHistoryEntry({ copy, templateId });
-  }, [session, copy, templateId]);
+    updateCurrentHistoryEntry({
+      copy,
+      templateId,
+      layoutSeed,
+      renderModeOverrides,
+      layout: layoutOverride,
+    });
+  }, [
+    session,
+    copy,
+    templateId,
+    layoutSeed,
+    renderModeOverrides,
+    layoutOverride,
+  ]);
 
   if (!session || !copy) {
     return (
@@ -95,6 +218,153 @@ export function ResultView() {
       .map((t) => t.trim())
       .filter(Boolean);
     setCopy((c) => (c ? { ...c, hashtags: tags } : c));
+  }
+
+  function onRelayout() {
+    const nextSeed = layoutSeed + 1;
+    setLayoutSeed(nextSeed);
+    setSelectedPhotoIndex(null);
+    if (
+      templateId === "chalkboard-collage-v1" &&
+      session &&
+      copy
+    ) {
+      setLayoutOverride(
+        computeChalkboardLayout({
+          photoCount: session.photos.length,
+          analyses: copy.photoAnalyses,
+          cutoutAssets: session.cutoutAssets,
+          captions: copy.captions,
+          renderModeOverrides,
+          seed: nextSeed,
+        }),
+      );
+      return;
+    }
+    setLayoutOverride(undefined);
+  }
+
+  function onResetLayout() {
+    setLayoutOverride(undefined);
+    setSelectedPhotoIndex(null);
+  }
+
+  function onSetHero(photoIndex: number) {
+    setCopy((current) => {
+      if (!current?.photoAnalyses) return current;
+      return {
+        ...current,
+        photoAnalyses: analysesWithHero(current.photoAnalyses, photoIndex),
+      };
+    });
+    setLayoutOverride(undefined);
+    setSelectedPhotoIndex(photoIndex);
+  }
+
+  function onSetRenderMode(
+    photoIndex: number,
+    mode: "frame" | "cutout",
+  ) {
+    if (!activeLayout) return;
+    if (mode === "cutout") {
+      const asset = session?.cutoutAssets?.find(
+        (item) => item.photoIndex === photoIndex,
+      );
+      if (asset?.status !== "ready" || !asset.url) return;
+    }
+    setRenderModeOverrides((current) => ({
+      ...current,
+      [photoIndex]: mode,
+    }));
+    setLayoutOverride(
+      layoutWithUpdatedNode(activeLayout, photoIndex, (node) => ({
+        ...node,
+        renderMode: mode,
+        zIndex:
+          mode === "cutout"
+            ? Math.max(40, node.zIndex)
+            : Math.min(19, node.zIndex),
+      })),
+    );
+  }
+
+  function onScaleSelected(factor: number) {
+    if (!activeLayout || selectedPhotoIndex === null) return;
+    setLayoutOverride(
+      layoutWithUpdatedNode(activeLayout, selectedPhotoIndex, (node) => {
+        const minFactor = Math.max(80 / node.width, 90 / node.height);
+        const maxFactor = Math.min(
+          (activeLayout.canvasWidth - 16) / node.width,
+          480 / node.height,
+        );
+        const applied = Math.max(
+          minFactor,
+          Math.min(maxFactor, factor),
+        );
+        const width = node.width * applied;
+        const height = node.height * applied;
+        const centerX = node.x + node.width / 2;
+        const centerY = node.y + node.height / 2;
+        return {
+          ...node,
+          x: Math.max(
+            4,
+            Math.min(
+              activeLayout.canvasWidth - width - 4,
+              centerX - width / 2,
+            ),
+          ),
+          y: Math.max(0, centerY - height / 2),
+          width,
+          height,
+        };
+      }),
+    );
+  }
+
+  function onRotateSelected(delta: number) {
+    if (!activeLayout || selectedPhotoIndex === null) return;
+    setLayoutOverride(
+      layoutWithUpdatedNode(activeLayout, selectedPhotoIndex, (node) => ({
+        ...node,
+        rotation: Math.max(-18, Math.min(18, node.rotation + delta)),
+      })),
+    );
+  }
+
+  async function onRegenerateCopy() {
+    if (
+      !session ||
+      !copy ||
+      regenerateFilenames.length !== session.photos.length
+    ) {
+      return;
+    }
+    setEditorError(null);
+    setRegeneratingCopy(true);
+    try {
+      const generated = await generateCopy(
+        session.styleId,
+        regenerateFilenames,
+        templateId,
+        { includeCutouts: false },
+      );
+      const analyses = copy.photoAnalyses ?? generated.copy.photoAnalyses;
+      const layoutHints = copy.layoutHints ?? generated.copy.layoutHints;
+      const nextCopy: DayFrameCopy = {
+        ...generated.copy,
+        photoAnalyses: analyses,
+        layoutHints,
+      };
+      setCopy(nextCopy);
+      setHashtagsText(nextCopy.hashtags.join(" "));
+    } catch (error) {
+      setEditorError(
+        error instanceof Error ? error.message : "重新生成文案失败，请稍后重试。",
+      );
+    } finally {
+      setRegeneratingCopy(false);
+    }
   }
 
   async function onExport() {
@@ -151,10 +421,11 @@ export function ResultView() {
           >
             {exporting ? "导出中…" : "导出 PNG"}
           </button>
-          {templateId === "polka-scrapbook-v1" ? (
+          {templateId === "polka-scrapbook-v1" ||
+          templateId === "chalkboard-collage-v1" ? (
             <button
               type="button"
-              onClick={() => setLayoutSeed(Date.now())}
+              onClick={onRelayout}
               className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
             >
               重新排版
@@ -197,11 +468,41 @@ export function ResultView() {
               styleId={session.styleId}
               layoutSeed={layoutSeed}
               sketchRenderMode={session.sketchRenderMode}
+              cutoutAssets={session.cutoutAssets}
+              layout={activeLayout}
+              renderModeOverrides={renderModeOverrides}
+              editable={templateId === "chalkboard-collage-v1"}
+              selectedPhotoIndex={selectedPhotoIndex}
+              onSelectPhoto={setSelectedPhotoIndex}
+              onLayoutChange={setLayoutOverride}
             />
           </div>
         </div>
 
         <div className="min-w-0 flex-1 space-y-5">
+          {templateId === "chalkboard-collage-v1" &&
+          copy.photoAnalyses?.length ? (
+            <ChalkboardLayoutEditor
+              photos={session.photos}
+              analyses={copy.photoAnalyses}
+              cutoutAssets={session.cutoutAssets}
+              selectedPhotoIndex={selectedPhotoIndex}
+              selectedNode={selectedNode}
+              regenerating={regeneratingCopy}
+              canRegenerate={
+                regenerateFilenames.length === session.photos.length
+              }
+              error={editorError}
+              onSelect={setSelectedPhotoIndex}
+              onSetHero={onSetHero}
+              onSetRenderMode={onSetRenderMode}
+              onScale={onScaleSelected}
+              onRotate={onRotateSelected}
+              onResetLayout={onResetLayout}
+              onRegenerateCopy={onRegenerateCopy}
+            />
+          ) : null}
+
           <div className="space-y-2">
             <label className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
               标题
@@ -240,6 +541,14 @@ export function ResultView() {
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
             />
           </div>
+
+          {templateId === "chalkboard-collage-v1" &&
+          copy.photoAnalyses?.length ? (
+            <PhotoAnalysisPanel
+              analyses={copy.photoAnalyses}
+              photos={session.photos}
+            />
+          ) : null}
 
           {templateId === "hand-drawn-v1" &&
           session.sketchRenderMode === "overlay" ? (

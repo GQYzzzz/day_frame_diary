@@ -13,6 +13,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from openai import APITimeoutError, OpenAIError
 
+from app.cutout_service import generate_cutout_assets
 from app.generate_copy import generate_dayframe_copy
 from app.schemas import GenerateRequest
 from app.sketch_image import (
@@ -280,4 +281,19 @@ async def generate_copy(req: GenerateRequest) -> dict:
             status_code=500,
             detail=f"生成失败: {type(e).__name__}: {e}",
         ) from e
-    return {"copy": copy.model_dump()}
+    result: dict[str, Any] = {"copy": copy.model_dump()}
+    if (
+        req.template_id == "chalkboard-collage-v1"
+        and req.include_cutouts
+        and copy.photo_analyses
+    ):
+        cutout_assets = await asyncio.to_thread(
+            generate_cutout_assets,
+            UPLOAD_DIR,
+            req.filenames,
+            copy.photo_analyses,
+        )
+        result["cutout_assets"] = [
+            asset.model_dump() for asset in cutout_assets
+        ]
+    return result

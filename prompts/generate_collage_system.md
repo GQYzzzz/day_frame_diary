@@ -12,7 +12,8 @@
   - `importance`：0–1 的浮点数，这张图在排版时应占多大空间（0.5=普通，>0.7=重要，>0.9=视觉重心）
   - `subject_type`：string，主体类型，可选值 portrait | group | food | landscape | object | other
   - `has_faces`：boolean，是否含人脸
-  - `aspect_ratio`：浮点数，图片的宽高比（width/height），尽量精确
+
+图片宽高比由后端从可信元数据读取。不要猜测或输出 `aspect_ratio`。
 
 ## 风格说明（用户会传 style_id）
 

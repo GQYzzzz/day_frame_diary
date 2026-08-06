@@ -15,12 +15,18 @@ from pathlib import Path
 from openai import OpenAI
 from pydantic import ValidationError
 
-from app.image_prep import EXT_TO_MIME, read_image_for_model
+from app.image_prep import (
+    EXT_TO_MIME,
+    PhotoMetadata,
+    inspect_image,
+    read_image_for_model,
+)
 from app.json_repair import parse_json_object
 from app.schemas import (
     DayFrameCopyModel,
     GenerateRequest,
     LayoutHintModel,
+    PhotoAnalysisModel,
     PhotoSketchModel,
     SketchCalloutModel,
 )
@@ -122,6 +128,7 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         "hashtags": hashtags,
         "sketches": sketches_raw,
         "layout_hints": merged.get("layout_hints"),
+        "photo_analyses": merged.get("photo_analyses"),
     }
 
 
@@ -173,6 +180,8 @@ def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
     if template_id == "hand-drawn-v1":
         # 手绘 JSON 体积大，按张数加码，降低截断概率
         return min(16384, 6000 + photo_count * 3500)
+    if template_id == "chalkboard-collage-v1":
+        return min(8192, 3072 + photo_count * 256)
     return 2048
 
 
@@ -190,7 +199,9 @@ def _openai_timeout_seconds() -> float:
 
 def _load_system_prompt(template_id: str) -> str:
     """从 prompts/ 目录加载对应模板的系统提示词文件。"""
-    if template_id == "image-collage-v1":
+    if template_id == "chalkboard-collage-v1":
+        path = PROMPTS_DIR / "generate_chalkboard_system.md"
+    elif template_id == "image-collage-v1":
         path = PROMPTS_DIR / "generate_collage_system.md"
     else:
         path = PROMPTS_DIR / "generate_copy_system.md"
@@ -198,6 +209,27 @@ def _load_system_prompt(template_id: str) -> str:
     if not path.is_file():
         return fallback
     return path.read_text(encoding="utf-8")
+
+
+def _resolve_uploaded_path(upload_dir: Path, filename: str) -> Path:
+    path = (upload_dir / filename).resolve()
+    try:
+        path.relative_to(upload_dir.resolve())
+    except ValueError as e:
+        raise ValueError("非法路径") from e
+    if not path.is_file():
+        raise FileNotFoundError(filename)
+    return path
+
+
+def _inspect_photos(
+    upload_dir: Path,
+    filenames: list[str],
+) -> list[PhotoMetadata]:
+    return [
+        inspect_image(_resolve_uploaded_path(upload_dir, name), index)
+        for index, name in enumerate(filenames)
+    ]
 
 
 def _image_parts(upload_dir: Path, filenames: list[str]) -> list[dict]:
@@ -209,14 +241,7 @@ def _image_parts(upload_dir: Path, filenames: list[str]) -> list[dict]:
     """
     parts: list[dict] = []
     for name in filenames:
-        path = (upload_dir / name).resolve()
-        # 路径穿越防护：确保文件在 upload_dir 内
-        try:
-            path.relative_to(upload_dir.resolve())
-        except ValueError as e:
-            raise ValueError("非法路径") from e
-        if not path.is_file():
-            raise FileNotFoundError(name)
+        path = _resolve_uploaded_path(upload_dir, name)
         ext = path.suffix.lower().lstrip(".")
         mime = EXT_TO_MIME.get(ext)
         if not mime:
@@ -230,6 +255,159 @@ def _image_parts(upload_dir: Path, filenames: list[str]) -> list[dict]:
             },
         )
     return parts
+
+
+def _photo_metadata_prompt(metadata: list[PhotoMetadata]) -> str:
+    items = [
+        {
+            "index": item.index,
+            "width": item.width,
+            "height": item.height,
+            "aspect_ratio": item.aspect_ratio,
+            "orientation": item.orientation,
+            "captured_at": item.captured_at,
+        }
+        for item in metadata
+    ]
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+
+def _raw_analysis_item(value: object, index: int) -> dict:
+    if not isinstance(value, list) or index >= len(value):
+        return {}
+    item = value[index]
+    return dict(item) if isinstance(item, dict) else {}
+
+
+def _assign_layout_roles(
+    analyses: list[PhotoAnalysisModel],
+) -> list[PhotoAnalysisModel]:
+    if not analyses:
+        return []
+    ranked = sorted(analyses, key=lambda item: (-item.importance, item.index))
+    roles = {ranked[0].index: "hero"}
+    support_count = 0 if len(ranked) == 1 else 1 if len(ranked) <= 4 else 2
+    for item in ranked[1 : 1 + support_count]:
+        roles[item.index] = "support"
+    return [
+        item.model_copy(update={"layout_role": roles.get(item.index, "detail")})
+        for item in analyses
+    ]
+
+
+def _build_photo_analyses(
+    metadata: list[PhotoMetadata],
+    analyses_raw: object,
+    hints_raw: object,
+) -> list[PhotoAnalysisModel]:
+    analyses: list[PhotoAnalysisModel] = []
+    for item in metadata:
+        semantic = _raw_analysis_item(hints_raw, item.index)
+        semantic.update(_raw_analysis_item(analyses_raw, item.index))
+        if "subject_summary" not in semantic and isinstance(
+            semantic.get("subject"),
+            str,
+        ):
+            semantic["subject_summary"] = semantic["subject"]
+        if isinstance(semantic.get("subject_summary"), str):
+            semantic["subject_summary"] = semantic["subject_summary"][:120]
+
+        trusted = {
+            "index": item.index,
+            "width": item.width,
+            "height": item.height,
+            "aspect_ratio": item.aspect_ratio,
+            "orientation": item.orientation,
+            "captured_at": item.captured_at,
+        }
+        try:
+            analysis = PhotoAnalysisModel.model_validate(
+                {**semantic, **trusted},
+            )
+        except ValidationError:
+            analysis = PhotoAnalysisModel.model_validate(trusted)
+        analyses.append(analysis)
+    return _assign_layout_roles(analyses)
+
+
+def _layout_hints_from_analyses(
+    analyses: list[PhotoAnalysisModel],
+) -> list[LayoutHintModel]:
+    return [
+        LayoutHintModel(
+            importance=item.importance,
+            subject_type=item.subject_type,
+            has_faces=item.has_faces,
+            aspect_ratio=item.aspect_ratio,
+        )
+        for item in analyses
+    ]
+
+
+def _chalkboard_copy_limits(photo_count: int) -> dict[str, int]:
+    if photo_count <= 3:
+        return {
+            "title": 18,
+            "diary": 220,
+            "hero_caption": 28,
+            "support_caption": 24,
+            "detail_caption": 20,
+        }
+    if photo_count <= 6:
+        return {
+            "title": 16,
+            "diary": 160,
+            "hero_caption": 24,
+            "support_caption": 20,
+            "detail_caption": 16,
+        }
+    return {
+        "title": 14,
+        "diary": 120,
+        "hero_caption": 20,
+        "support_caption": 16,
+        "detail_caption": 14,
+    }
+
+
+def _truncate_copy_text(
+    value: str,
+    limit: int,
+    *,
+    prefer_sentence: bool = False,
+) -> str:
+    text = re.sub(r"[ \t]+", " ", value.strip())
+    if len(text) <= limit:
+        return text
+    prefix = text[:limit]
+    if prefer_sentence:
+        boundary = max(
+            prefix.rfind(mark)
+            for mark in ("。", "！", "？", "；", "\n")
+        )
+        if boundary >= int(limit * 0.6):
+            return prefix[: boundary + 1].strip()
+    compact = text[: max(1, limit - 1)]
+    return f"{compact.rstrip('，、；：,.!！?？ ')}…"
+
+
+def _fit_chalkboard_copy(
+    title: str,
+    diary: str,
+    captions: list[str],
+    analyses: list[PhotoAnalysisModel],
+) -> tuple[str, str, list[str]]:
+    limits = _chalkboard_copy_limits(len(analyses))
+    fitted_captions: list[str] = []
+    for index, caption in enumerate(captions):
+        role = analyses[index].layout_role
+        limit = limits.get(f"{role}_caption", limits["detail_caption"])
+        fitted_captions.append(_truncate_copy_text(caption, limit))
+    return (
+        _truncate_copy_text(title, limits["title"]),
+        _truncate_copy_text(diary, limits["diary"], prefer_sentence=True),
+        fitted_captions,
+    )
 
 
 def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCopyModel:
@@ -252,12 +430,26 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     style_label = STYLE_LABELS.get(req.style_id, req.style_id)
     system = _load_system_prompt(req.template_id)
 
+    photo_metadata = _inspect_photos(upload_dir, req.filenames)
     image_parts = _image_parts(upload_dir, req.filenames)
+    copy_budget = ""
+    if req.template_id == "chalkboard-collage-v1":
+        limits = _chalkboard_copy_limits(n)
+        copy_budget = (
+            "\n黑板手账版面文字预算（中文字符上限，必须遵守）："
+            f"title 不超过 {limits['title']} 字；"
+            f"diary 不超过 {limits['diary']} 字；"
+            f"每条 caption 建议 {limits['detail_caption']}–"
+            f"{limits['hero_caption']} 字，重点照片可以更长，细节照片更短。"
+        )
     user_text = (
         f"style_id: {req.style_id}\n"
         f"风格名称：{style_label}\n"
         f"template_id: {req.template_id}\n"
         f"图片数量：{n}\n"
+        f"照片可信元数据（按 index 对应图片顺序）："
+        f"{_photo_metadata_prompt(photo_metadata)}\n"
+        f"{copy_budget}\n"
         f"\n"
         f"请根据以上 {n} 张图（按发送顺序）生成 JSON。"
         f"captions 必须恰好包含 {n} 个字符串，与图片一一对应。"
@@ -289,6 +481,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
     # 提前弹出 layout_hints，由下面的手动循环做逐项容错解析
     layout_hints_raw = data.pop("layout_hints", None)
+    photo_analyses_raw = data.pop("photo_analyses", None)
 
     # Pydantic 校验，确保字段类型和格式正确
     try:
@@ -306,27 +499,30 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
 
     sketches = _normalize_sketches(copy.sketches, n, req.template_id)
 
-    layout_hints: list[LayoutHintModel] | None = None
-    if isinstance(layout_hints_raw, list) and len(layout_hints_raw) == n:
-        hints = []
-        for item in layout_hints_raw:
-            if isinstance(item, dict):
-                try:
-                    hints.append(LayoutHintModel.model_validate(item))
-                except ValidationError:
-                    hints.append(LayoutHintModel())
-            else:
-                hints.append(LayoutHintModel())
-        if len(hints) == n:
-            layout_hints = hints
+    photo_analyses = _build_photo_analyses(
+        photo_metadata,
+        photo_analyses_raw,
+        layout_hints_raw,
+    )
+    layout_hints = _layout_hints_from_analyses(photo_analyses)
+    title = copy.title
+    diary = copy.diary
+    if req.template_id == "chalkboard-collage-v1":
+        title, diary, caps = _fit_chalkboard_copy(
+            title,
+            diary,
+            caps,
+            photo_analyses,
+        )
 
     return DayFrameCopyModel(
-        title=copy.title,
-        diary=copy.diary,
+        title=title,
+        diary=diary,
         captions=caps,
         hashtags=copy.hashtags,
         sketches=sketches,
         layout_hints=layout_hints,
+        photo_analyses=photo_analyses,
     )
 
 

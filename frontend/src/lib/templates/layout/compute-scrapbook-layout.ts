@@ -403,7 +403,6 @@ function twoPhotoCorridors(
 function* scanCorridor(
   corridor: SearchBounds & { xMin: number; xMax: number },
   bw: number,
-  bh: number,
 ): Generator<{ x: number; y: number }> {
   const xMax = Math.max(corridor.xMin, corridor.xMax - bw);
   const yEnd = corridor.maxY;
@@ -442,14 +441,14 @@ function* diagonalZonePositions(
       { x: p0.x + p0.w + 10, y: p0.y + 6 },
       { x: p0.x + p0.w + 14, y: p0.y - bh - 8 },
     );
-    yield* scanCorridor(corridors.topRight, bw, bh);
+    yield* scanCorridor(corridors.topRight, bw);
   } else if (zone === "bottom-left") {
     yield* positionsBesidePhoto(p1, canvasWidth, "left", bw, bh, yCeiling);
     presets.push(
       { x: p1.x - bw - 12, y: p1.y + 14 },
       { x: PADDING + 6, y: p1.y + p1.h * 0.35 - bh * 0.5 },
     );
-    yield* scanCorridor(corridors.bottomLeft, bw, bh);
+    yield* scanCorridor(corridors.bottomLeft, bw);
   } else {
     const c = corridors.center;
     presets.push(
@@ -460,7 +459,7 @@ function* diagonalZonePositions(
       { x: c.xMin + 12, y: c.minY + 8 },
       { x: c.xMax - bw - 12, y: c.maxY - bh - 16 },
     );
-    yield* scanCorridor(corridors.center, bw, bh);
+    yield* scanCorridor(corridors.center, bw);
   }
 
   const order = presets.map((_, i) => i).sort(() => rng() - 0.5);

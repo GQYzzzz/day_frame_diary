@@ -53,6 +53,27 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - 环境变量：`OPENAI_IMAGE_MODEL`、`HAND_DRAWN_USE_IMAGE_API`（见 `.env.example`）
 - **生成较慢 / Swagger 一直 Loading**：属正常等待模型；大图会先压缩再发送。若超过 `OPENAI_TIMEOUT`（默认 360s）会返回 **504**；请看运行 uvicorn 的终端是否有报错。
 
+## 黑板手账抠图
+
+`chalkboard-collage-v1` 会根据照片分析结果，最多选择 3 张主体清晰的图片运行本地 U²-Net 抠图。输出为带透明背景、白色描边和阴影的 PNG；单张抠图失败时会自动退回原始矩形照片。
+
+模型文件默认路径：
+
+```text
+backend/.models/u2net/u2net.onnx
+```
+
+模型目录已被 Git 忽略。新环境需要自行准备 `u2net.onnx`，可从 rembg 的 U²-Net 模型发布页下载：
+
+```bash
+cd backend
+mkdir -p .models/u2net
+curl -L https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx \
+  -o .models/u2net/u2net.onnx
+```
+
+可在 `.env` 配置 `DAYFRAME_CUTOUT_ENABLED`、`DAYFRAME_CUTOUT_MODEL`、`DAYFRAME_MAX_CUTOUTS`、`DAYFRAME_CUTOUT_MAX_SIDE` 和 `DAYFRAME_CUTOUT_THREADS`，默认值见 `.env.example`。
+
 ## 与前端联调
 
 1. 终端 A：按上文启动 FastAPI（已配置 `OPENAI_API_KEY`）。  

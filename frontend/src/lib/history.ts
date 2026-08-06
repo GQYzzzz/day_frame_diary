@@ -4,7 +4,10 @@ import {
   templateNeedsEmbeddedPhotos,
   type DayFrameCopy,
   type DayFrameSessionV1,
+  type CutoutAsset,
+  type PhotoRenderModeOverrides,
   type StyleId,
+  type TemplateLayout,
   type TemplateId,
 } from "@/lib/types";
 
@@ -20,8 +23,13 @@ export type HistoryEntryV1 = {
   styleId: StyleId;
   templateId: DayFrameSessionV1["templateId"];
   photos: string[];
+  uploadedFilenames?: string[];
   copy: DayFrameCopy;
   createdAt: number;
+  cutoutAssets?: CutoutAsset[];
+  layoutSeed?: number;
+  renderModeOverrides?: PhotoRenderModeOverrides;
+  layout?: TemplateLayout;
 };
 
 function newId(): string {
@@ -56,6 +64,19 @@ function writeRaw(entries: HistoryEntryV1[]): void {
   localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries));
 }
 
+function writeWithEviction(entries: HistoryEntryV1[]): HistoryEntryV1[] {
+  let next = entries.slice(0, MAX_ENTRIES);
+  while (next.length > 0) {
+    try {
+      writeRaw(next);
+      return next;
+    } catch {
+      next = next.slice(0, -1);
+    }
+  }
+  return [];
+}
+
 async function urlToDataUrl(url: string): Promise<string> {
   if (url.startsWith("data:")) return url;
   const res = await fetch(url);
@@ -73,6 +94,19 @@ async function urlToDataUrl(url: string): Promise<string> {
 
 async function persistPhotosAsDataUrls(photos: string[]): Promise<string[]> {
   return Promise.all(photos.map((url) => urlToDataUrl(url)));
+}
+
+async function persistCutoutAssets(
+  assets: CutoutAsset[] | undefined,
+): Promise<CutoutAsset[] | undefined> {
+  if (!assets) return undefined;
+  return Promise.all(
+    assets.map(async (asset) => ({
+      ...asset,
+      url: asset.url ? await urlToDataUrl(asset.url) : undefined,
+      maskUrl: undefined,
+    })),
+  );
 }
 
 export function listHistoryEntries(): HistoryEntryV1[] {
@@ -101,9 +135,6 @@ export function setCurrentHistoryId(id: string | null): void {
 export async function addHistoryFromSession(
   session: DayFrameSessionV1,
 ): Promise<string> {
-  const photos = templateNeedsEmbeddedPhotos(session.templateId)
-    ? await persistPhotosAsDataUrls(session.photos)
-    : [...session.photos];
   const id = newId();
   const entry: HistoryEntryV1 = {
     version: 1,
@@ -111,25 +142,45 @@ export async function addHistoryFromSession(
     savedAt: Date.now(),
     styleId: session.styleId,
     templateId: session.templateId,
-    photos,
+    photos: [...session.photos],
+    uploadedFilenames: session.uploadedFilenames,
     copy: session.copy,
     createdAt: session.createdAt,
+    cutoutAssets: session.cutoutAssets,
+    layoutSeed: session.layoutSeed,
+    renderModeOverrides: session.renderModeOverrides,
+    layout: session.layout,
   };
 
-  let entries = readRaw();
-  entries.unshift(entry);
-  if (entries.length > MAX_ENTRIES) {
-    entries = entries.slice(0, MAX_ENTRIES);
-  }
-
-  try {
-    writeRaw(entries);
-  } catch {
-    entries = entries.slice(0, Math.max(5, Math.floor(entries.length / 2)));
-    writeRaw(entries);
-  }
-
+  writeWithEviction([entry, ...readRaw()]);
   setCurrentHistoryId(id);
+
+  if (templateNeedsEmbeddedPhotos(session.templateId)) {
+    try {
+      const photos = await persistPhotosAsDataUrls(session.photos);
+      const cutoutAssets =
+        session.templateId === "chalkboard-collage-v1"
+          ? await persistCutoutAssets(session.cutoutAssets)
+          : session.cutoutAssets;
+      const entries = readRaw();
+      const index = entries.findIndex((item) => item.id === id);
+      if (index >= 0) {
+        const enriched = {
+          ...entries[index],
+          photos,
+          cutoutAssets,
+        };
+        const withoutCurrent = entries.filter((item) => item.id !== id);
+        const written = writeWithEviction([enriched, ...withoutCurrent]);
+        if (!written.some((item) => item.id === id)) {
+          writeWithEviction([entry, ...withoutCurrent]);
+        }
+      }
+    } catch {
+      // 后端 URL 仍可用于恢复；内嵌失败不应丢失整条历史。
+    }
+  }
+
   return id;
 }
 
@@ -137,6 +188,9 @@ export async function addHistoryFromSession(
 export function updateCurrentHistoryEntry(patch: {
   copy?: DayFrameCopy;
   templateId?: TemplateId;
+  layoutSeed?: number;
+  renderModeOverrides?: PhotoRenderModeOverrides;
+  layout?: TemplateLayout;
 }): void {
   const id = getCurrentHistoryId();
   if (!id) return;
@@ -151,7 +205,7 @@ export function updateCurrentHistoryEntry(patch: {
   try {
     writeRaw(entries);
   } catch {
-    /* 存储满时静默跳过，避免打断编辑 */
+    writeWithEviction(entries);
   }
 }
 
@@ -183,8 +237,13 @@ export function openHistoryEntry(id: string): boolean {
     styleId: entry.styleId,
     templateId: normalizeTemplateId(entry.templateId as string | undefined),
     photos: entry.photos,
+    uploadedFilenames: entry.uploadedFilenames,
     copy: entry.copy,
     createdAt: entry.createdAt,
+    cutoutAssets: entry.cutoutAssets,
+    layoutSeed: entry.layoutSeed,
+    renderModeOverrides: entry.renderModeOverrides,
+    layout: entry.layout,
   };
   saveDayFrameSession(session);
   setCurrentHistoryId(id);

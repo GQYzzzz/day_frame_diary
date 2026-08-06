@@ -1,16 +1,20 @@
 "use client";
 
 import type { ComponentType, Ref } from "react";
+import { ChalkboardCollageTemplate } from "@/components/templates/chalkboard/chalkboard-collage-template";
 import { HandDrawnDiaryTemplate } from "@/components/templates/hand-drawn/hand-drawn-diary-template";
 import { ImageCollageTemplate } from "@/components/templates/image-collage-template";
 import { PolkaScrapbookTemplate } from "@/components/templates/scrapbook/polka-scrapbook-template";
 import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import {
   DEFAULT_TEMPLATE_ID,
+  type CutoutAsset,
   type DayFrameCopy,
+  type PhotoRenderModeOverrides,
   type SketchRenderMode,
   type StyleId,
   type TemplateId,
+  type TemplateLayout,
 } from "@/lib/types";
 
 export type TemplateRenderProps = {
@@ -19,6 +23,13 @@ export type TemplateRenderProps = {
   styleId: StyleId;
   layoutSeed: number;
   sketchRenderMode?: SketchRenderMode;
+  cutoutAssets?: CutoutAsset[];
+  layout?: TemplateLayout;
+  renderModeOverrides?: PhotoRenderModeOverrides;
+  editable?: boolean;
+  selectedPhotoIndex?: number | null;
+  onSelectPhoto?: (photoIndex: number) => void;
+  onLayoutChange?: (layout: TemplateLayout) => void;
 };
 
 type TemplateEntry = {
@@ -57,6 +68,13 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
     previewWidth: 390,
     exportBackground: "#ffffff",
     Component: ImageCollageTemplate,
+  },
+  "chalkboard-collage-v1": {
+    id: "chalkboard-collage-v1",
+    label: "黑板手账",
+    previewWidth: 390,
+    exportBackground: "#111715",
+    Component: ChalkboardCollageTemplate,
   },
 };
 

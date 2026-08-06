@@ -104,8 +104,8 @@ npm run dev
 ### 何时写入历史
 
 1. **上传并生成成功**（`upload-form.tsx`）：先 `saveDayFrameSession`，再 `addHistoryFromSession`。
-2. 保存历史时在**后台**把 `/api/uploads/...` 转为 data URL 再写入（不阻塞进入结果页），避免仅依赖后端 `uploads/` 目录。
-3. **结果页编辑文案**（`result-view.tsx`）：若存在 `dayframe:history:current-id`，会 `updateCurrentHistoryCopy` 同步该条的 `copy` 与 `savedAt`。
+2. 保存历史时先同步写入轻量 URL 记录并建立历史 id，再在**后台**把 `/api/uploads/...` 转为 data URL；即使图片内嵌失败，作品也不会整条丢失。
+3. **结果页编辑**（`result-view.tsx`）：若存在 `dayframe:history:current-id`，会同步文案、排版 seed、手工布局和原图/抠图选择。
 4. 历史写入失败（例如容量满）**不会阻断**进入 `/result` 预览。
 
 ### 何时会清空或减少历史
@@ -127,7 +127,7 @@ npm run dev
 
 - 用户在 `/history` 对某条点 **「删除」** → 只移除该 id；若删的是当前 `current-id`，会清空 `dayframe:history:current-id`（不影响其余历史）。
 - **超过 30 条**：新作品保存时只保留最新的 30 条，更早的自动丢弃（不是清空全部）。
-- **写入 `localStorage` 抛错**（常见为配额约 5MB 已满）：`addHistoryFromSession` 会尝试将条数减半后再写一次；若仍失败，**本次可能未写入历史**，已有条目通常仍在。结果页 `updateCurrentHistoryCopy` 失败时 **静默跳过**，不删已有数据。
+- **写入 `localStorage` 抛错**（常见为配额约 5MB 已满）：按时间从旧到新逐条淘汰，优先保留当前作品；如果图片 data URL 仍过大，则回退为后端 URL 的轻量记录。
 
 ### 从历史打开作品
 
