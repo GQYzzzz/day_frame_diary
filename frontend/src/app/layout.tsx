@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import "@fontsource/zcool-kuaile/400.css";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 

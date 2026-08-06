@@ -347,23 +347,23 @@ def _layout_hints_from_analyses(
 def _chalkboard_copy_limits(photo_count: int) -> dict[str, int]:
     if photo_count <= 3:
         return {
-            "title": 18,
-            "diary": 220,
+            "title": 14,
+            "diary": 140,
             "hero_caption": 28,
             "support_caption": 24,
             "detail_caption": 20,
         }
     if photo_count <= 6:
         return {
-            "title": 16,
-            "diary": 160,
+            "title": 14,
+            "diary": 130,
             "hero_caption": 24,
             "support_caption": 20,
             "detail_caption": 16,
         }
     return {
-        "title": 14,
-        "diary": 120,
+        "title": 12,
+        "diary": 110,
         "hero_caption": 20,
         "support_caption": 16,
         "detail_caption": 14,

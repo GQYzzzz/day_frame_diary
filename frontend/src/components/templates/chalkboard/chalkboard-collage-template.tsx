@@ -27,9 +27,9 @@ import type {
 } from "@/lib/types";
 
 const CHALK_FONT =
-  '"Xingkai SC", "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif';
+  '"ZCOOL KuaiLe", "HanziPen SC", "Kaiti SC", "STKaiti", cursive';
 const TITLE_FONT =
-  '"HanziPen SC", "Xingkai SC", "Kaiti SC", "STKaiti", serif';
+  '"ZCOOL KuaiLe", "HanziPen SC", "Kaiti SC", "STKaiti", cursive';
 const FRAME_CLIPS = [
   "polygon(1% 1%, 99% 0, 100% 98%, 2% 100%, 0 52%)",
   "polygon(0 2%, 98% 0, 100% 99%, 1% 98%)",
@@ -264,7 +264,7 @@ export const ChalkboardCollageTemplate = forwardRef<
           DAYFRAME · {dayLabel(copy.photoAnalyses)}
         </p>
         <h1
-          className="mt-2 overflow-hidden break-words font-semibold leading-[1.12] text-[#f8f3e8]"
+          className="mt-2 overflow-hidden break-words font-normal leading-[1.18] text-[#f8f3e8]"
           title={titleFit.truncated ? copy.title : undefined}
           style={{
             fontFamily: TITLE_FONT,
