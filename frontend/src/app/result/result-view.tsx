@@ -20,6 +20,10 @@ import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import { computeChalkboardLayout } from "@/lib/templates/chalkboard/compute-chalkboard-layout";
 import { computePolkaLayout } from "@/lib/templates/polka/compute-polka-layout";
 import {
+  DEFAULT_VERTICAL_BACKGROUND,
+  VERTICAL_BACKGROUND_OPTIONS,
+} from "@/lib/templates/vertical-backgrounds";
+import {
   normalizeTemplateId,
   TEMPLATE_REGISTRY,
   templateLabel,
@@ -35,6 +39,7 @@ import type {
   SummaryPlacement,
   TemplateId,
   TemplateLayout,
+  VerticalBackground,
 } from "@/lib/types";
 
 function styleLabel(id: DayFrameSessionV1["styleId"]) {
@@ -57,6 +62,7 @@ function editableSnapshot(value: {
   layout?: TemplateLayout;
   generationDurationMs?: number;
   summaryPlacement: SummaryPlacement;
+  verticalBackground: VerticalBackground;
 }): string {
   return JSON.stringify(value);
 }
@@ -160,6 +166,10 @@ export function ResultView() {
   const [summaryPlacement, setSummaryPlacement] = useState<SummaryPlacement>(
     () => session?.summaryPlacement ?? "end",
   );
+  const [verticalBackground, setVerticalBackground] =
+    useState<VerticalBackground>(
+      () => session?.verticalBackground ?? DEFAULT_VERTICAL_BACKGROUND,
+    );
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(
     null,
   );
@@ -181,6 +191,8 @@ export function ResultView() {
       layout: initialLayoutForSession(session),
       generationDurationMs: session?.generationDurationMs,
       summaryPlacement: session?.summaryPlacement ?? "end",
+      verticalBackground:
+        session?.verticalBackground ?? DEFAULT_VERTICAL_BACKGROUND,
     }),
   );
 
@@ -246,6 +258,7 @@ export function ResultView() {
         layout: layoutOverride,
         generationDurationMs,
         summaryPlacement,
+        verticalBackground,
       }),
     [
       copy,
@@ -254,6 +267,7 @@ export function ResultView() {
       layoutOverride,
       generationDurationMs,
       summaryPlacement,
+      verticalBackground,
     ],
   );
   const hasUnsavedChanges = currentSnapshot !== savedSnapshot;
@@ -271,6 +285,7 @@ export function ResultView() {
       layout: layoutOverride,
       generationDurationMs,
       summaryPlacement,
+      verticalBackground,
     };
     saveDayFrameSession(next);
     updateCurrentHistoryEntry({
@@ -281,6 +296,7 @@ export function ResultView() {
       layout: layoutOverride,
       generationDurationMs,
       summaryPlacement,
+      verticalBackground,
     });
     setSavedSnapshot(currentSnapshot);
   }, [
@@ -294,6 +310,7 @@ export function ResultView() {
     layoutOverride,
     generationDurationMs,
     summaryPlacement,
+    verticalBackground,
   ]);
   const saveChangesRef = useRef(saveChanges);
 
@@ -661,6 +678,7 @@ export function ResultView() {
               onLayoutChange={setLayoutOverride}
               summaryPlacement={summaryPlacement}
               onSummaryPlacementChange={setSummaryPlacement}
+              verticalBackground={verticalBackground}
             />
           </div>
         </div>
@@ -688,6 +706,44 @@ export function ResultView() {
               summaryPlacement={summaryPlacement}
               onSummaryPlacementChange={setSummaryPlacement}
             />
+          ) : null}
+
+          {templateId === "vertical-v1" ? (
+            <section className="space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/55">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  背景颜色
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  选择竖版长图的页面底色，导出图片会保持当前选择。
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {VERTICAL_BACKGROUND_OPTIONS.map((option) => {
+                  const selected = verticalBackground === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setVerticalBackground(option.id)}
+                      className={`flex min-w-0 flex-col items-center gap-1.5 rounded-xl border px-1.5 py-2 text-[11px] transition ${
+                        selected
+                          ? "border-sky-500 bg-sky-50 text-sky-700 ring-2 ring-sky-500/20 dark:bg-sky-950/40 dark:text-sky-300"
+                          : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      <span
+                        className="h-7 w-7 rounded-full border border-black/15 shadow-sm"
+                        style={{ backgroundColor: option.color }}
+                        aria-hidden
+                      />
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
           ) : null}
 
           <div className="space-y-2">

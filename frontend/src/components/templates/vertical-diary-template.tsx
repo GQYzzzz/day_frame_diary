@@ -1,42 +1,51 @@
 "use client";
 
 import { forwardRef } from "react";
-import type { DayFrameCopy, StyleId } from "@/lib/types";
-
-const shell: Record<StyleId, string> = {
-  xiaohongshu:
-    "bg-gradient-to-b from-rose-50 via-white to-white text-zinc-900",
-  travel:
-    "bg-gradient-to-b from-sky-50 via-white to-emerald-50/50 text-zinc-900",
-  literary:
-    "bg-gradient-to-b from-amber-50/90 via-white to-stone-50 text-zinc-900",
-  minimal: "bg-white text-zinc-900",
-  moments:
-    "bg-gradient-to-b from-zinc-50 to-white text-zinc-900",
-};
+import { verticalBackgroundOption } from "@/lib/templates/vertical-backgrounds";
+import type {
+  DayFrameCopy,
+  StyleId,
+  VerticalBackground,
+} from "@/lib/types";
 
 type Props = {
   copy: DayFrameCopy;
   photos: string[];
   styleId: StyleId;
   layoutSeed?: number;
+  verticalBackground?: VerticalBackground;
 };
 
 export const VerticalDiaryTemplate = forwardRef<HTMLDivElement, Props>(
-  function VerticalDiaryTemplate({ copy, photos, styleId }, ref) {
+  function VerticalDiaryTemplate(
+    { copy, photos, verticalBackground },
+    ref,
+  ) {
+    const background = verticalBackgroundOption(verticalBackground);
+    const dark = background.dark;
     return (
       <div
         ref={ref}
         data-dayframe-export-root
-        className={`w-[390px] shrink-0 overflow-hidden rounded-[28px] border border-zinc-200/90 p-8 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.35)] ${shell[styleId]}`}
+        data-export-bg={background.color}
+        className={`w-[390px] shrink-0 overflow-hidden rounded-[28px] border p-8 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.35)] ${
+          dark
+            ? "border-white/15 text-zinc-50"
+            : "border-black/10 text-zinc-900"
+        }`}
+        style={{ backgroundColor: background.color }}
       >
-        <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-400">
+        <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">
           DayFrame
         </p>
         <h1 className="mt-3 text-[22px] font-semibold leading-snug tracking-tight">
           {copy.title}
         </h1>
-        <p className="mt-5 whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-700">
+        <p
+          className={`mt-5 whitespace-pre-wrap text-[14px] leading-relaxed ${
+            dark ? "text-zinc-300" : "text-zinc-700"
+          }`}
+        >
           {copy.diary}
         </p>
 
@@ -48,14 +57,32 @@ export const VerticalDiaryTemplate = forwardRef<HTMLDivElement, Props>(
               <img
                 src={src}
                 alt={`照片 ${index + 1}`}
-                className="h-auto w-full rounded-2xl bg-zinc-100/30 object-contain shadow-inner ring-1 ring-black/5"
+                className={`h-auto w-full rounded-2xl object-contain shadow-inner ring-1 ${
+                  dark
+                    ? "bg-white/5 ring-white/10"
+                    : "bg-white/25 ring-black/5"
+                }`}
                 draggable={false}
               />
-              <figcaption className="text-[13px] leading-relaxed text-zinc-600">
-                <span className="font-medium text-zinc-900">
+              <figcaption
+                className={`text-[13px] leading-relaxed ${
+                  dark ? "text-zinc-400" : "text-zinc-600"
+                }`}
+              >
+                <span
+                  className={`font-medium ${
+                    dark ? "text-zinc-100" : "text-zinc-900"
+                  }`}
+                >
                   图 {index + 1}
                 </span>
-                <span className="mx-2 text-zinc-300">·</span>
+                <span
+                  className={`mx-2 ${
+                    dark ? "text-zinc-600" : "text-zinc-400"
+                  }`}
+                >
+                  ·
+                </span>
                 {copy.captions[index]}
               </figcaption>
             </figure>
@@ -66,7 +93,11 @@ export const VerticalDiaryTemplate = forwardRef<HTMLDivElement, Props>(
           {copy.hashtags.map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-black/[0.04] px-3 py-1 text-[12px] text-zinc-600 ring-1 ring-black/[0.06]"
+              className={`rounded-full px-3 py-1 text-[12px] ring-1 ${
+                dark
+                  ? "bg-white/[0.07] text-zinc-300 ring-white/10"
+                  : "bg-black/[0.04] text-zinc-600 ring-black/[0.06]"
+              }`}
             >
               {tag}
             </span>

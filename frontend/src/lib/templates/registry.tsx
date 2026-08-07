@@ -16,6 +16,7 @@ import {
   type SummaryPlacement,
   type TemplateId,
   type TemplateLayout,
+  type VerticalBackground,
 } from "@/lib/types";
 
 export type TemplateRenderProps = {
@@ -33,6 +34,7 @@ export type TemplateRenderProps = {
   onLayoutChange?: (layout: TemplateLayout) => void;
   summaryPlacement?: SummaryPlacement;
   onSummaryPlacementChange?: (placement: SummaryPlacement) => void;
+  verticalBackground?: VerticalBackground;
 };
 
 type TemplateEntry = {

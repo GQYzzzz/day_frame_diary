@@ -10,10 +10,10 @@ export type StyleId = (typeof STYLE_PRESETS)[number]["id"];
 
 export const TEMPLATE_PRESETS = [
   { id: "vertical-v1", label: "竖版长图" },
+  { id: "chalkboard-collage-v1", label: "黑板手账" },
   { id: "polka-scrapbook-v1", label: "波点拼贴" },
   { id: "hand-drawn-v1", label: "手绘标注" },
   { id: "image-collage-v1", label: "图片拼接" },
-  { id: "chalkboard-collage-v1", label: "黑板手账" },
 ] as const;
 
 export type TemplateId = (typeof TEMPLATE_PRESETS)[number]["id"];
@@ -41,6 +41,14 @@ export type PhotoRenderMode = "frame" | "cutout" | "hero";
 export type EditablePhotoRenderMode = "frame" | "cutout";
 export type PhotoRenderModeOverrides = Record<number, EditablePhotoRenderMode>;
 export type SummaryPlacement = "start" | "end";
+export type VerticalBackground =
+  | "white"
+  | "pale-yellow"
+  | "pale-pink"
+  | "pale-blue"
+  | "gray"
+  | "light-brown"
+  | "black";
 export type PhotoOrientation = "portrait" | "landscape" | "square";
 export type PhotoLayoutRole = "hero" | "support" | "detail";
 
@@ -181,4 +189,5 @@ export type DayFrameSessionV1 = {
   layout?: TemplateLayout;
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
+  verticalBackground?: VerticalBackground;
 };

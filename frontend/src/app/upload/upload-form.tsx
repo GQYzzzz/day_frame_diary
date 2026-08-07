@@ -85,6 +85,7 @@ export function UploadForm() {
           performance.now() - generationStartedAt,
         ),
         summaryPlacement: "end" as const,
+        verticalBackground: "white" as const,
       };
       saveDayFrameSession(session);
       // 历史需把每张图转成 data URL 再写 localStorage，可能耗时数分钟；

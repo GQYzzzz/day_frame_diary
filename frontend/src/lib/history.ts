@@ -10,6 +10,7 @@ import {
   type StyleId,
   type TemplateLayout,
   type TemplateId,
+  type VerticalBackground,
 } from "@/lib/types";
 
 export const HISTORY_STORAGE_KEY = "dayframe:history:v1";
@@ -33,6 +34,7 @@ export type HistoryEntryV1 = {
   layout?: TemplateLayout;
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
+  verticalBackground?: VerticalBackground;
 };
 
 function newId(): string {
@@ -155,6 +157,7 @@ export async function addHistoryFromSession(
     layout: session.layout,
     generationDurationMs: session.generationDurationMs,
     summaryPlacement: session.summaryPlacement,
+    verticalBackground: session.verticalBackground,
   };
 
   writeWithEviction([entry, ...readRaw()]);
@@ -199,6 +202,7 @@ export function updateCurrentHistoryEntry(patch: {
   layout?: TemplateLayout;
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
+  verticalBackground?: VerticalBackground;
 }): void {
   const id = getCurrentHistoryId();
   if (!id) return;
@@ -254,6 +258,7 @@ export function openHistoryEntry(id: string): boolean {
     layout: entry.layout,
     generationDurationMs: entry.generationDurationMs,
     summaryPlacement: entry.summaryPlacement,
+    verticalBackground: entry.verticalBackground,
   };
   saveDayFrameSession(session);
   setCurrentHistoryId(id);
