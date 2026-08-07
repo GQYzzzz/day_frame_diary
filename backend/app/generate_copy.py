@@ -83,44 +83,128 @@ def _strip_caption_number(value: object) -> str:
     ).strip()
 
 
+def _raw_photo_analysis(value: object, index: int) -> dict:
+    if not isinstance(value, list) or index >= len(value):
+        return {}
+    item = value[index]
+    return item if isinstance(item, dict) else {}
+
+
+def _fallback_caption(
+    index: int,
+    analyses_raw: object,
+    used: set[str],
+) -> str:
+    analysis = _raw_photo_analysis(analyses_raw, index)
+    summary = analysis.get("subject_summary") or analysis.get("subject")
+    if isinstance(summary, str):
+        candidate = _strip_caption_number(summary)[:40]
+        if candidate and candidate not in used:
+            return candidate
+
+    generic = (
+        "这一幕先好好收下",
+        "刚好留下眼前这一刻",
+        "今天也有值得回看的画面",
+        "把当时的瞬间存进今天",
+        "这一页还想再多看一会儿",
+        "现场的光也一起记住了",
+        "属于今天的一小段记忆",
+        "回看时还是会想起这一刻",
+        "这张也放进今天的故事里",
+    )
+    for offset in range(len(generic)):
+        candidate = generic[(index + offset) % len(generic)]
+        if candidate not in used:
+            return candidate
+    return f"留住今天的第 {index + 1} 个瞬间"
+
+
+def _normalize_captions(
+    caps: object,
+    photo_count: int,
+    analyses_raw: object,
+    sketches_raw: object,
+) -> list[str]:
+    raw_captions = caps if isinstance(caps, list) else [caps] if isinstance(caps, str) else []
+    captions = [
+        _strip_caption_number(raw_captions[index])
+        if index < len(raw_captions) and raw_captions[index] is not None
+        else ""
+        for index in range(photo_count)
+    ]
+
+    if isinstance(sketches_raw, list):
+        for index, sketch in enumerate(sketches_raw[:photo_count]):
+            if captions[index] or not isinstance(sketch, dict):
+                continue
+            summary = sketch.get("summary") or sketch.get("caption")
+            if summary:
+                captions[index] = _strip_caption_number(summary)[:120]
+
+    frequencies: dict[str, int] = {}
+    for caption in captions:
+        normalized = re.sub(r"\s+", "", caption)
+        if normalized:
+            frequencies[normalized] = frequencies.get(normalized, 0) + 1
+
+    used: set[str] = set()
+    for index, caption in enumerate(captions):
+        normalized = re.sub(r"\s+", "", caption)
+        if not caption or frequencies.get(normalized, 0) > 1 or normalized in used:
+            caption = _fallback_caption(index, analyses_raw, used)
+            captions[index] = caption
+            normalized = re.sub(r"\s+", "", caption)
+        used.add(normalized)
+    return captions
+
+
+def _flatten_model_payload(data: dict) -> dict:
+    merged = dict(data)
+    for key in ("result", "data", "copy", "response", "output", "content"):
+        inner = merged.get(key)
+        if isinstance(inner, dict):
+            merged = {**merged, **inner}
+    return merged
+
+
+def _has_complete_chalkboard_copy(data: dict, photo_count: int) -> bool:
+    merged = _flatten_model_payload(data)
+    title = merged.get("title") or merged.get("Title")
+    diary = merged.get("diary") or merged.get("content") or merged.get("body")
+    caps = merged.get("captions")
+    if not isinstance(title, str) or not title.strip():
+        return False
+    if not isinstance(diary, str) or not diary.strip():
+        return False
+    if not isinstance(caps, list) or len(caps) != photo_count:
+        return False
+    cleaned = [
+        _strip_caption_number(value) if value is not None else ""
+        for value in caps
+    ]
+    return all(cleaned) and len({re.sub(r"\s+", "", item) for item in cleaned}) == photo_count
+
+
 def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
     """合并模型返回中的嵌套字段，为缺失的 title/diary/captions/hashtags 填默认值。
 
     模型有时会在 result / data / copy 等外层 key 里嵌套真正的字段，
     此函数展开所有可能的包装层，确保返回的结构是扁平的 DayFrameCopy 格式。
     """
-    merged = dict(data)
-    for key in ("result", "data", "copy", "response", "output", "content"):
-        inner = merged.get(key)
-        if isinstance(inner, dict):
-            merged = {**merged, **inner}
+    merged = _flatten_model_payload(data)
 
     title = merged.get("title") or merged.get("Title") or ""
     diary = merged.get("diary") or merged.get("content") or merged.get("body") or ""
 
-    caps = merged.get("captions")
-    if isinstance(caps, str):
-        caps = [caps]
-    if not isinstance(caps, list):
-        caps = []
-    captions = [
-        cleaned
-        for c in caps
-        if c is not None and (cleaned := _strip_caption_number(c))
-    ]
-
-    # 手绘模板中：如果 captions 不够，从 sketches 的 summary 字段提取补充
     sketches_raw = merged.get("sketches")
-    if isinstance(sketches_raw, list):
-        for i, sk in enumerate(sketches_raw):
-            if i >= len(captions) and isinstance(sk, dict):
-                summary = sk.get("summary") or sk.get("caption")
-                if summary:
-                    captions.append(_strip_caption_number(summary)[:120])
-
-    while len(captions) < photo_count:
-        captions.append("这一刻也值得记下来")
-    captions = captions[:photo_count]
+    photo_analyses_raw = merged.get("photo_analyses")
+    captions = _normalize_captions(
+        merged.get("captions"),
+        photo_count,
+        photo_analyses_raw,
+        sketches_raw,
+    )
 
     tags = merged.get("hashtags") or merged.get("tags") or []
     if isinstance(tags, str):
@@ -143,7 +227,7 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         "hashtags": hashtags,
         "sketches": sketches_raw,
         "layout_hints": merged.get("layout_hints"),
-        "photo_analyses": merged.get("photo_analyses"),
+        "photo_analyses": photo_analyses_raw,
     }
 
 
@@ -426,7 +510,7 @@ def _fit_chalkboard_copy(
 
 
 def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCopyModel:
-    """核心入口：调用 OpenAI gpt-4o-mini 生成完整的日记文案。
+    """核心入口：调用配置的多模态模型生成完整日记文案。
 
     流程：
     1. 校验 API Key 存在
@@ -467,7 +551,8 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
         f"{copy_budget}\n"
         f"\n"
         f"请根据以上 {n} 张图（按发送顺序）生成 JSON。"
-        f"captions 必须恰好包含 {n} 个字符串，与图片一一对应。"
+        f"captions 必须恰好包含 {n} 个非空字符串，与图片一一对应，"
+        f"每条都要针对对应图片单独撰写，不能重复。"
     )
     # 将文本和图片放在同一个 user message 中（多模态）
     user_content: list[dict] = [{"type": "text", "text": user_text}, *image_parts]
@@ -489,10 +574,32 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
         max_tokens=_max_tokens_for_request(req.template_id, n),
     )
     raw, finish = _completion_text_and_finish(resp)
-    if finish == "length":
-        # 输出被截断时，json_repair 仍会尝试修复不完整的 JSON
-        pass
-    data = _coerce_dayframe_payload(_parse_model_json(raw), n)
+    parsed = _parse_model_json(raw)
+    if (
+        req.template_id == "chalkboard-collage-v1"
+        and (finish == "length" or not _has_complete_chalkboard_copy(parsed, n))
+    ):
+        retry_text = (
+            f"上一次输出缺少核心文案、caption 为空或出现重复。请重新观察同一组 "
+            f"{n} 张图片并输出完整 JSON。title 和 diary 必须非空；captions 必须"
+            f"恰好包含 {n} 个非空且互不重复的字符串，第 i 条只能描述第 i 张图片；"
+            "photo_analyses 也必须与图片顺序一一对应。只输出 JSON。"
+        )
+        retry_resp = client.chat.completions.create(
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": retry_text},
+            ],
+            temperature=0.45,
+            max_tokens=_max_tokens_for_request(req.template_id, n),
+        )
+        retry_raw, _ = _completion_text_and_finish(retry_resp)
+        parsed = _parse_model_json(retry_raw)
+    data = _coerce_dayframe_payload(parsed, n)
 
     # 提前弹出 layout_hints，由下面的手动循环做逐项容错解析
     layout_hints_raw = data.pop("layout_hints", None)

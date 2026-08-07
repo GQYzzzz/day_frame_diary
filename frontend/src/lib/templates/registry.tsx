@@ -13,6 +13,7 @@ import {
   type PhotoRenderModeOverrides,
   type SketchRenderMode,
   type StyleId,
+  type SummaryPlacement,
   type TemplateId,
   type TemplateLayout,
 } from "@/lib/types";
@@ -30,6 +31,8 @@ export type TemplateRenderProps = {
   selectedPhotoIndex?: number | null;
   onSelectPhoto?: (photoIndex: number) => void;
   onLayoutChange?: (layout: TemplateLayout) => void;
+  summaryPlacement?: SummaryPlacement;
+  onSummaryPlacementChange?: (placement: SummaryPlacement) => void;
 };
 
 type TemplateEntry = {

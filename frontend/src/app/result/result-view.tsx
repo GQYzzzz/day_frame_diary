@@ -24,12 +24,22 @@ import type {
   PhotoLayoutNode,
   PhotoRenderModeOverrides,
   PhotoSketch,
+  SummaryPlacement,
   TemplateId,
   TemplateLayout,
 } from "@/lib/types";
 
 function styleLabel(id: DayFrameSessionV1["styleId"]) {
   return STYLE_PRESETS.find((s) => s.id === id)?.label ?? id;
+}
+
+function formatDuration(durationMs: number | undefined): string | null {
+  if (!durationMs || durationMs < 0) return null;
+  const seconds = durationMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes} 分 ${remaining} 秒`;
 }
 
 function analysesWithHero(
@@ -113,6 +123,12 @@ export function ResultView() {
     useState<PhotoRenderModeOverrides>(
       () => session?.renderModeOverrides ?? {},
     );
+  const [generationDurationMs, setGenerationDurationMs] = useState<
+    number | undefined
+  >(() => session?.generationDurationMs);
+  const [summaryPlacement, setSummaryPlacement] = useState<SummaryPlacement>(
+    () => session?.summaryPlacement ?? "end",
+  );
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(
     null,
   );
@@ -175,6 +191,8 @@ export function ResultView() {
       layoutSeed,
       renderModeOverrides,
       layout: layoutOverride,
+      generationDurationMs,
+      summaryPlacement,
     };
     saveDayFrameSession(next);
     updateCurrentHistoryEntry({
@@ -183,6 +201,8 @@ export function ResultView() {
       layoutSeed,
       renderModeOverrides,
       layout: layoutOverride,
+      generationDurationMs,
+      summaryPlacement,
     });
   }, [
     session,
@@ -191,6 +211,8 @@ export function ResultView() {
     layoutSeed,
     renderModeOverrides,
     layoutOverride,
+    generationDurationMs,
+    summaryPlacement,
   ]);
 
   if (!session || !copy) {
@@ -333,6 +355,7 @@ export function ResultView() {
     }
     setEditorError(null);
     setRegeneratingCopy(true);
+    const regenerationStartedAt = performance.now();
     try {
       const generated = await generateCopy(
         session.styleId,
@@ -349,6 +372,9 @@ export function ResultView() {
       };
       setCopy(nextCopy);
       setHashtagsText(nextCopy.hashtags.join(" "));
+      setGenerationDurationMs(
+        Math.round(performance.now() - regenerationStartedAt),
+      );
     } catch (error) {
       setEditorError(
         error instanceof Error ? error.message : "重新生成文案失败，请稍后重试。",
@@ -401,6 +427,15 @@ export function ResultView() {
             ) : null}
             {" · "}
             {session.photos.length} 张图
+            {formatDuration(generationDurationMs) ? (
+              <>
+                {" · "}
+                生成耗时：
+                <span className="font-medium">
+                  {formatDuration(generationDurationMs)}
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -466,6 +501,8 @@ export function ResultView() {
               selectedPhotoIndex={selectedPhotoIndex}
               onSelectPhoto={setSelectedPhotoIndex}
               onLayoutChange={setLayoutOverride}
+              summaryPlacement={summaryPlacement}
+              onSummaryPlacementChange={setSummaryPlacement}
             />
           </div>
         </div>
@@ -491,6 +528,8 @@ export function ResultView() {
               onRotate={onRotateSelected}
               onResetLayout={onResetLayout}
               onRegenerateCopy={onRegenerateCopy}
+              summaryPlacement={summaryPlacement}
+              onSummaryPlacementChange={setSummaryPlacement}
             />
           ) : null}
 

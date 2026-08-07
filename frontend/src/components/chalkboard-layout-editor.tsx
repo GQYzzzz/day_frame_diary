@@ -4,6 +4,7 @@ import type {
   CutoutAsset,
   PhotoAnalysis,
   PhotoLayoutNode,
+  SummaryPlacement,
 } from "@/lib/types";
 
 type Props = {
@@ -22,6 +23,8 @@ type Props = {
   onRotate: (delta: number) => void;
   onResetLayout: () => void;
   onRegenerateCopy: () => void;
+  summaryPlacement: SummaryPlacement;
+  onSummaryPlacementChange: (placement: SummaryPlacement) => void;
 };
 
 export function ChalkboardLayoutEditor({
@@ -40,6 +43,8 @@ export function ChalkboardLayoutEditor({
   onRotate,
   onResetLayout,
   onRegenerateCopy,
+  summaryPlacement,
+  onSummaryPlacementChange,
 }: Props) {
   const selectedAnalysis = analyses.find(
     (item) => item.index === selectedPhotoIndex,
@@ -205,6 +210,39 @@ export function ChalkboardLayoutEditor({
           点击缩略图或画布中的照片开始编辑。
         </p>
       )}
+
+      <div className="border-t border-zinc-200 pt-4 dark:border-zinc-700">
+        <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+          总结文字位置
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onSummaryPlacementChange("start")}
+            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+              summaryPlacement === "start"
+                ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+            }`}
+          >
+            放到照片前
+          </button>
+          <button
+            type="button"
+            onClick={() => onSummaryPlacementChange("end")}
+            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+              summaryPlacement === "end"
+                ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                : "border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+            }`}
+          >
+            放到照片后
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          也可以直接在左侧预览中上下拖动总结文字。
+        </p>
+      </div>
 
       <div className="border-t border-zinc-200 pt-4 dark:border-zinc-700">
         <button

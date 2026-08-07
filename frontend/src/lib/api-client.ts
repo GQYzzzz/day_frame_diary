@@ -338,8 +338,21 @@ export async function generateCopy(
     captions: (copyPayload.captions as string[]).slice(0, filenames.length),
     hashtags: copyPayload.hashtags as string[],
   };
+  const fallbackCaptions = [
+    "这一幕先好好收下",
+    "刚好留下眼前这一刻",
+    "今天也有值得回看的画面",
+    "把当时的瞬间存进今天",
+    "这一页还想再多看一会儿",
+    "现场的光也一起记住了",
+    "属于今天的一小段记忆",
+    "回看时还是会想起这一刻",
+    "这张也放进今天的故事里",
+  ];
   while (copy.captions.length < filenames.length) {
-    copy.captions.push("这一刻也值得记下来");
+    copy.captions.push(
+      fallbackCaptions[copy.captions.length % fallbackCaptions.length],
+    );
   }
 
   const rawHints = copyPayload.layout_hints;

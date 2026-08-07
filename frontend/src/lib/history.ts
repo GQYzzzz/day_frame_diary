@@ -6,6 +6,7 @@ import {
   type DayFrameSessionV1,
   type CutoutAsset,
   type PhotoRenderModeOverrides,
+  type SummaryPlacement,
   type StyleId,
   type TemplateLayout,
   type TemplateId,
@@ -30,6 +31,8 @@ export type HistoryEntryV1 = {
   layoutSeed?: number;
   renderModeOverrides?: PhotoRenderModeOverrides;
   layout?: TemplateLayout;
+  generationDurationMs?: number;
+  summaryPlacement?: SummaryPlacement;
 };
 
 function newId(): string {
@@ -150,6 +153,8 @@ export async function addHistoryFromSession(
     layoutSeed: session.layoutSeed,
     renderModeOverrides: session.renderModeOverrides,
     layout: session.layout,
+    generationDurationMs: session.generationDurationMs,
+    summaryPlacement: session.summaryPlacement,
   };
 
   writeWithEviction([entry, ...readRaw()]);
@@ -191,6 +196,8 @@ export function updateCurrentHistoryEntry(patch: {
   layoutSeed?: number;
   renderModeOverrides?: PhotoRenderModeOverrides;
   layout?: TemplateLayout;
+  generationDurationMs?: number;
+  summaryPlacement?: SummaryPlacement;
 }): void {
   const id = getCurrentHistoryId();
   if (!id) return;
@@ -244,6 +251,8 @@ export function openHistoryEntry(id: string): boolean {
     layoutSeed: entry.layoutSeed,
     renderModeOverrides: entry.renderModeOverrides,
     layout: entry.layout,
+    generationDurationMs: entry.generationDurationMs,
+    summaryPlacement: entry.summaryPlacement,
   };
   saveDayFrameSession(session);
   setCurrentHistoryId(id);

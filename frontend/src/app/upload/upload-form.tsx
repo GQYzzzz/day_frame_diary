@@ -52,6 +52,7 @@ export function UploadForm() {
       return;
     }
 
+    const generationStartedAt = performance.now();
     try {
       setPhase("uploading");
       const items = await uploadImages(files);
@@ -80,6 +81,10 @@ export function UploadForm() {
         photoAnalyses: copy.photoAnalyses,
         cutoutAssets,
         createdAt: Date.now(),
+        generationDurationMs: Math.round(
+          performance.now() - generationStartedAt,
+        ),
+        summaryPlacement: "end" as const,
       };
       saveDayFrameSession(session);
       // 历史需把每张图转成 data URL 再写 localStorage，可能耗时数分钟；

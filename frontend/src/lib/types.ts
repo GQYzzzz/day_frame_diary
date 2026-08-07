@@ -40,6 +40,7 @@ export type PhotoSubjectType =
 export type PhotoRenderMode = "frame" | "cutout" | "hero";
 export type EditablePhotoRenderMode = "frame" | "cutout";
 export type PhotoRenderModeOverrides = Record<number, EditablePhotoRenderMode>;
+export type SummaryPlacement = "start" | "end";
 export type PhotoOrientation = "portrait" | "landscape" | "square";
 export type PhotoLayoutRole = "hero" | "support" | "detail";
 
@@ -178,4 +179,6 @@ export type DayFrameSessionV1 = {
   layoutSeed?: number;
   renderModeOverrides?: PhotoRenderModeOverrides;
   layout?: TemplateLayout;
+  generationDurationMs?: number;
+  summaryPlacement?: SummaryPlacement;
 };

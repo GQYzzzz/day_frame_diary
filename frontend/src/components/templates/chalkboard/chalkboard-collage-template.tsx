@@ -4,6 +4,7 @@ import {
   forwardRef,
   useMemo,
   useRef,
+  useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -37,6 +38,12 @@ const FRAME_CLIPS = [
   "polygon(0 1%, 99% 2%, 100% 97%, 2% 100%)",
 ];
 const CAPTION_COLORS = ["#f4eee2", "#e9c1c5", "#ead88d", "#bad8cf"];
+const FALLBACK_CAPTIONS = [
+  "这一幕先好好收下",
+  "刚好留下眼前这一刻",
+  "今天也有值得回看的画面",
+  "把当时的瞬间存进今天",
+];
 
 function doodleForSubject(subject: PhotoSubjectType): ChalkDoodleKind {
   switch (subject) {
@@ -96,6 +103,8 @@ export const ChalkboardCollageTemplate = forwardRef<
     selectedPhotoIndex,
     onSelectPhoto,
     onLayoutChange,
+    summaryPlacement = "end",
+    onSummaryPlacementChange,
   },
   ref,
 ) {
@@ -107,6 +116,12 @@ export const ChalkboardCollageTemplate = forwardRef<
     startX: number;
     startY: number;
   } | null>(null);
+  const summaryDragRef = useRef<{
+    pointerId: number;
+    startClientY: number;
+    offsetY: number;
+  } | null>(null);
+  const [summaryDragOffset, setSummaryDragOffset] = useState(0);
   const cutoutsByIndex = new Map(
     cutoutAssets?.map((asset) => [asset.photoIndex, asset]),
   );
@@ -219,6 +234,97 @@ export const ChalkboardCollageTemplate = forwardRef<
     }
   }
 
+  function onSummaryPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (!editable || !onSummaryPlacementChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    summaryDragRef.current = {
+      pointerId: event.pointerId,
+      startClientY: event.clientY,
+      offsetY: 0,
+    };
+    setSummaryDragOffset(0);
+  }
+
+  function onSummaryPointerMove(event: ReactPointerEvent<HTMLElement>) {
+    const drag = summaryDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    drag.offsetY = event.clientY - drag.startClientY;
+    setSummaryDragOffset(drag.offsetY);
+  }
+
+  function endSummaryDrag(event: ReactPointerEvent<HTMLElement>) {
+    const drag = summaryDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.offsetY <= -48) {
+      onSummaryPlacementChange?.("start");
+    } else if (drag.offsetY >= 48) {
+      onSummaryPlacementChange?.("end");
+    }
+    summaryDragRef.current = null;
+    setSummaryDragOffset(0);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  const summaryBlock = (
+    <section
+      className={`relative z-[70] mx-6 border-t border-dashed border-white/35 px-2 pt-5 ${
+        summaryPlacement === "start" ? "mt-6 mb-2" : "mt-5"
+      }`}
+      onPointerDown={onSummaryPointerDown}
+      onPointerMove={onSummaryPointerMove}
+      onPointerUp={endSummaryDrag}
+      onPointerCancel={endSummaryDrag}
+      style={{
+        transform: `translateY(${summaryDragOffset}px)`,
+        cursor: editable ? "grab" : undefined,
+        touchAction: editable ? "none" : undefined,
+        transition: summaryDragOffset === 0 ? "transform 160ms ease-out" : undefined,
+      }}
+    >
+      {editable ? (
+        <span
+          data-dayframe-editor-ui="true"
+          className="absolute -top-2 right-1 rounded bg-sky-500 px-2 py-1 font-sans text-[8px] leading-none text-white shadow"
+        >
+          上下拖动总结
+        </span>
+      ) : null}
+      <p className="mb-2 text-[9px] uppercase tracking-[0.28em] text-[#e8d388]/65">
+        TODAY&apos;S LITTLE STORY
+      </p>
+      {copy.diary ? (
+        <p
+          className="border-l border-white/25 pl-3 whitespace-pre-wrap text-[13px] leading-[1.85] text-white/82"
+          style={{
+            fontFamily: CHALK_FONT,
+            fontSize: diaryType.fontSize,
+            lineHeight: diaryType.lineHeight,
+            textShadow: "0.4px 0.4px rgba(255,255,255,0.12)",
+          }}
+        >
+          {copy.diary}
+        </p>
+      ) : null}
+      <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+        {copy.hashtags.map((tag, index) => (
+          <span
+            key={tag}
+            style={{
+              color: CAPTION_COLORS[index % CAPTION_COLORS.length],
+            }}
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+
   return (
     <div
       ref={ref}
@@ -282,8 +388,10 @@ export const ChalkboardCollageTemplate = forwardRef<
         <ChalkTitleUnderline />
       </header>
 
+      {summaryPlacement === "start" ? summaryBlock : null}
+
       <section
-        className="relative mt-7"
+        className={`relative ${summaryPlacement === "start" ? "mt-4" : "mt-7"}`}
         style={{ height: layout.canvasHeight }}
       >
         {photoNodes.map((node) => {
@@ -299,7 +407,8 @@ export const ChalkboardCollageTemplate = forwardRef<
           const captionColor =
             CAPTION_COLORS[node.photoIndex % CAPTION_COLORS.length];
           const captionFit = fitCaption(
-            copy.captions[node.photoIndex] || "这一刻也值得记下来",
+            copy.captions[node.photoIndex] ||
+              FALLBACK_CAPTIONS[node.photoIndex % FALLBACK_CAPTIONS.length],
             node.width,
           );
           const tapeTone =
@@ -418,35 +527,9 @@ export const ChalkboardCollageTemplate = forwardRef<
         })}
       </section>
 
-      <footer className="relative z-[2] mx-6 mt-5 border-t border-dashed border-white/35 px-2 pt-5">
-        <p className="mb-2 text-[9px] uppercase tracking-[0.28em] text-[#e8d388]/65">
-          TODAY&apos;S LITTLE STORY
-        </p>
-        {copy.diary ? (
-          <p
-            className="border-l border-white/25 pl-3 whitespace-pre-wrap text-[13px] leading-[1.85] text-white/82"
-            style={{
-              fontFamily: CHALK_FONT,
-              fontSize: diaryType.fontSize,
-              lineHeight: diaryType.lineHeight,
-              textShadow: "0.4px 0.4px rgba(255,255,255,0.12)",
-            }}
-          >
-            {copy.diary}
-          </p>
-        ) : null}
-        <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-          {copy.hashtags.map((tag, index) => (
-            <span
-              key={tag}
-              style={{
-                color: CAPTION_COLORS[index % CAPTION_COLORS.length],
-              }}
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
+      {summaryPlacement === "end" ? summaryBlock : null}
+
+      <footer className="relative z-[2] mx-6 mt-3 px-2">
         <div className="relative mt-3 h-[68px]">
           <ChalkDoodle
             kind="bicycle"
