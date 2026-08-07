@@ -55,7 +55,7 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
     id: "polka-scrapbook-v1",
     label: "波点拼贴",
     previewWidth: 390,
-    exportBackground: "#d4d0cb",
+    exportBackground: "#c8c6c2",
     Component: PolkaScrapbookTemplate,
   },
   "hand-drawn-v1": {

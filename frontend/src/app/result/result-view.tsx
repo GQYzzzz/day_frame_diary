@@ -18,6 +18,7 @@ import { loadDayFrameSession, saveDayFrameSession } from "@/lib/session";
 import { buildFallbackSketch } from "@/lib/sketch/fallback-sketch";
 import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import { computeChalkboardLayout } from "@/lib/templates/chalkboard/compute-chalkboard-layout";
+import { computePolkaLayout } from "@/lib/templates/polka/compute-polka-layout";
 import {
   normalizeTemplateId,
   TEMPLATE_REGISTRY,
@@ -122,6 +123,17 @@ function initialCopyForSession(
   return { ...copy, sketches };
 }
 
+function initialLayoutForSession(
+  session: DayFrameSessionV1 | null,
+): TemplateLayout | undefined {
+  const layout = session?.layout;
+  if (!layout || layout.templateId !== session.templateId) return undefined;
+  const photoCount = layout.nodes.filter(
+    (node) => node.nodeType === "photo",
+  ).length;
+  return photoCount === session.photos.length ? layout : undefined;
+}
+
 export function ResultView() {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -137,7 +149,7 @@ export function ResultView() {
   );
   const [layoutOverride, setLayoutOverride] = useState<
     TemplateLayout | undefined
-  >(() => session?.layout);
+  >(() => initialLayoutForSession(session));
   const [renderModeOverrides, setRenderModeOverrides] =
     useState<PhotoRenderModeOverrides>(
       () => session?.renderModeOverrides ?? {},
@@ -166,7 +178,7 @@ export function ResultView() {
       copy: initialCopyForSession(session),
       layoutSeed: session?.layoutSeed ?? session?.createdAt ?? Date.now(),
       renderModeOverrides: session?.renderModeOverrides ?? {},
-      layout: session?.layout,
+      layout: initialLayoutForSession(session),
       generationDurationMs: session?.generationDurationMs,
       summaryPlacement: session?.summaryPlacement ?? "end",
     }),
@@ -175,26 +187,39 @@ export function ResultView() {
   const templateEntry = TEMPLATE_REGISTRY[templateId];
   const TemplateComponent = templateEntry.Component;
   const previewWidth = templateEntry.previewWidth;
-  const generatedChalkboardLayout = useMemo(() => {
+  const supportsCollageEditing =
+    templateId === "chalkboard-collage-v1" ||
+    templateId === "polka-scrapbook-v1";
+  const generatedCollageLayout = useMemo(() => {
     if (
       !session ||
       !copy ||
-      templateId !== "chalkboard-collage-v1"
+      !supportsCollageEditing
     ) {
       return undefined;
     }
-    return computeChalkboardLayout({
+    const input = {
       photoCount: session.photos.length,
       analyses: copy.photoAnalyses,
       cutoutAssets: session.cutoutAssets,
       captions: copy.captions,
       renderModeOverrides,
       seed: layoutSeed,
-    });
-  }, [session, copy, templateId, renderModeOverrides, layoutSeed]);
+    };
+    return templateId === "polka-scrapbook-v1"
+      ? computePolkaLayout(input)
+      : computeChalkboardLayout(input);
+  }, [
+    session,
+    copy,
+    templateId,
+    supportsCollageEditing,
+    renderModeOverrides,
+    layoutSeed,
+  ]);
   const activeLayout =
-    templateId === "chalkboard-collage-v1"
-      ? layoutOverride ?? generatedChalkboardLayout
+    supportsCollageEditing
+      ? layoutOverride ?? generatedCollageLayout
       : undefined;
   const selectedNode = activeLayout?.nodes.find(
     (node): node is PhotoLayoutNode =>
@@ -362,20 +387,19 @@ export function ResultView() {
     const nextSeed = layoutSeed + 1;
     setLayoutSeed(nextSeed);
     setSelectedPhotoIndex(null);
-    if (
-      templateId === "chalkboard-collage-v1" &&
-      session &&
-      copy
-    ) {
+    if (supportsCollageEditing && session && copy) {
+      const input = {
+        photoCount: session.photos.length,
+        analyses: copy.photoAnalyses,
+        cutoutAssets: session.cutoutAssets,
+        captions: copy.captions,
+        renderModeOverrides,
+        seed: nextSeed,
+      };
       setLayoutOverride(
-        computeChalkboardLayout({
-          photoCount: session.photos.length,
-          analyses: copy.photoAnalyses,
-          cutoutAssets: session.cutoutAssets,
-          captions: copy.captions,
-          renderModeOverrides,
-          seed: nextSeed,
-        }),
+        templateId === "polka-scrapbook-v1"
+          ? computePolkaLayout(input)
+          : computeChalkboardLayout(input),
       );
       return;
     }
@@ -631,7 +655,7 @@ export function ResultView() {
               cutoutAssets={session.cutoutAssets}
               layout={activeLayout}
               renderModeOverrides={renderModeOverrides}
-              editable={templateId === "chalkboard-collage-v1"}
+              editable={supportsCollageEditing}
               selectedPhotoIndex={selectedPhotoIndex}
               onSelectPhoto={setSelectedPhotoIndex}
               onLayoutChange={setLayoutOverride}
@@ -642,8 +666,7 @@ export function ResultView() {
         </div>
 
         <div className="min-w-0 flex-1 space-y-5">
-          {templateId === "chalkboard-collage-v1" &&
-          copy.photoAnalyses?.length ? (
+          {supportsCollageEditing && copy.photoAnalyses?.length ? (
             <ChalkboardLayoutEditor
               photos={session.photos}
               analyses={copy.photoAnalyses}
@@ -706,8 +729,7 @@ export function ResultView() {
             />
           </div>
 
-          {templateId === "chalkboard-collage-v1" &&
-          copy.photoAnalyses?.length ? (
+          {supportsCollageEditing && copy.photoAnalyses?.length ? (
             <PhotoAnalysisPanel
               analyses={copy.photoAnalyses}
               photos={session.photos}

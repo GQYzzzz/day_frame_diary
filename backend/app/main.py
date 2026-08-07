@@ -283,7 +283,7 @@ async def generate_copy(req: GenerateRequest) -> dict:
         ) from e
     result: dict[str, Any] = {"copy": copy.model_dump()}
     if (
-        req.template_id == "chalkboard-collage-v1"
+        req.template_id in {"chalkboard-collage-v1", "polka-scrapbook-v1"}
         and req.include_cutouts
         and copy.photo_analyses
     ):

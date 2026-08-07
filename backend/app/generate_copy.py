@@ -261,6 +261,13 @@ def _message_content_from_completion(resp: object) -> str:
     return content
 
 
+def _is_adaptive_collage(template_id: str) -> bool:
+    return template_id in {
+        "chalkboard-collage-v1",
+        "polka-scrapbook-v1",
+    }
+
+
 def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
     """根据模板类型和图片数量，决定 max_tokens 上限。
 
@@ -279,7 +286,7 @@ def _max_tokens_for_request(template_id: str, photo_count: int) -> int:
     if template_id == "hand-drawn-v1":
         # 手绘 JSON 体积大，按张数加码，降低截断概率
         return min(16384, 6000 + photo_count * 3500)
-    if template_id == "chalkboard-collage-v1":
+    if _is_adaptive_collage(template_id):
         return min(8192, 3072 + photo_count * 256)
     return 2048
 
@@ -300,6 +307,8 @@ def _load_system_prompt(template_id: str) -> str:
     """从 prompts/ 目录加载对应模板的系统提示词文件。"""
     if template_id == "chalkboard-collage-v1":
         path = PROMPTS_DIR / "generate_chalkboard_system.md"
+    elif template_id == "polka-scrapbook-v1":
+        path = PROMPTS_DIR / "generate_polka_system.md"
     elif template_id == "image-collage-v1":
         path = PROMPTS_DIR / "generate_collage_system.md"
     else:
@@ -532,10 +541,10 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     photo_metadata = _inspect_photos(upload_dir, req.filenames)
     image_parts = _image_parts(upload_dir, req.filenames)
     copy_budget = ""
-    if req.template_id == "chalkboard-collage-v1":
+    if _is_adaptive_collage(req.template_id):
         limits = _chalkboard_copy_limits(n)
         copy_budget = (
-            "\n黑板手账版面文字预算（中文字符上限，必须遵守）："
+            "\n手账拼贴版面文字预算（中文字符上限，必须遵守）："
             f"title 不超过 {limits['title']} 字；"
             f"diary 不超过 {limits['diary']} 字；"
             f"每条 caption 建议 {limits['detail_caption']}–"
@@ -576,7 +585,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     raw, finish = _completion_text_and_finish(resp)
     parsed = _parse_model_json(raw)
     if (
-        req.template_id == "chalkboard-collage-v1"
+        _is_adaptive_collage(req.template_id)
         and (finish == "length" or not _has_complete_chalkboard_copy(parsed, n))
     ):
         retry_text = (
@@ -629,7 +638,7 @@ def generate_dayframe_copy(upload_dir: Path, req: GenerateRequest) -> DayFrameCo
     layout_hints = _layout_hints_from_analyses(photo_analyses)
     title = copy.title
     diary = copy.diary
-    if req.template_id == "chalkboard-collage-v1":
+    if _is_adaptive_collage(req.template_id):
         title, diary, caps = _fit_chalkboard_copy(
             title,
             diary,

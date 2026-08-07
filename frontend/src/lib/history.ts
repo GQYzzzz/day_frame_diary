@@ -134,7 +134,7 @@ export function setCurrentHistoryId(id: string | null): void {
   }
 }
 
-/** 新建一条历史（波点拼贴会内嵌照片；竖版长图仅保存 URL，写入更快） */
+/** 新建一条历史；手账模板会内嵌照片与抠图，保证后续可恢复编辑。 */
 export async function addHistoryFromSession(
   session: DayFrameSessionV1,
 ): Promise<string> {
@@ -164,7 +164,8 @@ export async function addHistoryFromSession(
     try {
       const photos = await persistPhotosAsDataUrls(session.photos);
       const cutoutAssets =
-        session.templateId === "chalkboard-collage-v1"
+        session.templateId === "chalkboard-collage-v1" ||
+        session.templateId === "polka-scrapbook-v1"
           ? await persistCutoutAssets(session.cutoutAssets)
           : session.cutoutAssets;
       const entries = readRaw();
