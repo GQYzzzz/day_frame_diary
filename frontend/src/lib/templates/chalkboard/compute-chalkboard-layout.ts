@@ -12,6 +12,7 @@ export const CHALKBOARD_CANVAS_WIDTH = 390;
 const PADDING = 16;
 const NODE_GAP = 12;
 const CAPTION_HEIGHT = 38;
+const FRAME_PADDING = 8;
 const MAX_CUTOUT_OVERLAP = 0.28;
 const MAX_FRAME_OVERLAP = 0.015;
 
@@ -271,6 +272,8 @@ function fallbackAnalysis(index: number, count: number): PhotoAnalysis {
     aspectRatio: 1,
     orientation: "square",
     subjectSummary: "",
+    cutoutGroup: [],
+    includeHumanParts: false,
     focalX: 0.5,
     focalY: 0.5,
     recommendedRender: "frame",
@@ -314,16 +317,17 @@ function photoCandidates(
     const cutout = cutoutByIndex.get(index);
     const hasReadyCutout =
       cutout?.status === "ready" && Boolean(cutout.url);
+    const hasCutout =
+      hasReadyCutout && renderModeOverrides?.[index] !== "frame";
     return {
       index,
       importance: analysis.importance,
-      aspectRatio: candidateAspect(analysis, cutout),
+      aspectRatio: candidateAspect(analysis, hasCutout ? cutout : undefined),
       captionLength: Array.from(captions?.[index]?.trim() ?? "").length,
       subjectType: analysis.subjectType,
       role: analysis.layoutRole,
       hasFaces: analysis.hasFaces,
-      hasCutout:
-        hasReadyCutout && renderModeOverrides?.[index] !== "frame",
+      hasCutout,
     };
   });
 }
@@ -484,6 +488,8 @@ function buildVariantLayout(
   const assigned = assignPhotos(photos, variant.slots);
   const rawNodes = variant.slots.map((slotItem, index): PhotoLayoutNode => {
     const photo = assigned[index];
+    const frameImageHeight =
+      (slotItem.width - FRAME_PADDING) / photo.aspectRatio + FRAME_PADDING;
     return {
       id: `${variant.id}-${slotItem.id}`,
       nodeType: "photo",
@@ -492,7 +498,9 @@ function buildVariantLayout(
       x: slotItem.x,
       y: slotItem.y,
       width: slotItem.width,
-      height: slotItem.height,
+      height: photo.hasCutout
+        ? slotItem.height
+        : frameImageHeight + CAPTION_HEIGHT,
       rotation: photo.hasFaces ? 0 : slotItem.rotation,
       zIndex: photo.hasCutout ? 40 + index : 10 + index,
     };

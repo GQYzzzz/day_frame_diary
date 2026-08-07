@@ -126,6 +126,7 @@ function normalizePhotoAnalysis(
   const height = finiteNumber(raw.height, 0);
   const capturedAt = raw.capturedAt ?? raw.captured_at;
   const subjectSummary = raw.subjectSummary ?? raw.subject_summary;
+  const cutoutGroup = raw.cutoutGroup ?? raw.cutout_group;
   return {
     ...hint,
     index: Math.max(0, Math.trunc(finiteNumber(raw.index, fallbackIndex))),
@@ -136,6 +137,17 @@ function normalizePhotoAnalysis(
       typeof capturedAt === "string" && capturedAt ? capturedAt : undefined,
     subjectSummary:
       typeof subjectSummary === "string" ? subjectSummary.slice(0, 120) : "",
+    cutoutGroup: Array.isArray(cutoutGroup)
+      ? cutoutGroup
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.slice(0, 40))
+          .slice(0, 6)
+      : [],
+    includeHumanParts:
+      typeof (raw.includeHumanParts ?? raw.include_human_parts) === "boolean"
+        ? Boolean(raw.includeHumanParts ?? raw.include_human_parts)
+        : hint.hasFaces || hint.subjectType === "portrait" ||
+          hint.subjectType === "group",
     focalX: clamp01(finiteNumber(raw.focalX ?? raw.focal_x, 0.5)),
     focalY: clamp01(finiteNumber(raw.focalY ?? raw.focal_y, 0.5)),
     recommendedRender: normalizeRenderMode(
@@ -327,7 +339,7 @@ export async function generateCopy(
     hashtags: copyPayload.hashtags as string[],
   };
   while (copy.captions.length < filenames.length) {
-    copy.captions.push(`第 ${copy.captions.length + 1} 张`);
+    copy.captions.push("这一刻也值得记下来");
   }
 
   const rawHints = copyPayload.layout_hints;

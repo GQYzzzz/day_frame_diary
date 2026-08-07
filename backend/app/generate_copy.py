@@ -1,7 +1,7 @@
 """
 DayFrame 文案生成核心模块。
 
-通过 OpenAI gpt-4o-mini（vision）识别用户上传的照片，
+通过 OpenAI 兼容的多模态模型识别用户上传的照片，
 生成结构化的日记文案（标题、正文、每张图配文、话题标签）。
 同时支持 hand-drawn-v1 模板的 SVG 手绘标注坐标生成。
 """
@@ -72,6 +72,17 @@ def _parse_model_json(raw: str) -> dict:
     return parse_json_object(_strip_json_fence(raw))
 
 
+def _strip_caption_number(value: object) -> str:
+    text = str(value).strip()
+    return re.sub(
+        r"^(?:(?:(?:第\s*)?\d+\s*张(?:图|照片)?|"
+        r"图\s*[一二三四五六七八九十\d]+|照片\s*\d+)"
+        r"\s*[.、:：\-—]?|0?\d{1,2}\s*[.、:：\-—])\s*",
+        "",
+        text,
+    ).strip()
+
+
 def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
     """合并模型返回中的嵌套字段，为缺失的 title/diary/captions/hashtags 填默认值。
 
@@ -92,7 +103,11 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
         caps = [caps]
     if not isinstance(caps, list):
         caps = []
-    captions = [str(c).strip() for c in caps if c is not None and str(c).strip()]
+    captions = [
+        cleaned
+        for c in caps
+        if c is not None and (cleaned := _strip_caption_number(c))
+    ]
 
     # 手绘模板中：如果 captions 不够，从 sketches 的 summary 字段提取补充
     sketches_raw = merged.get("sketches")
@@ -101,10 +116,10 @@ def _coerce_dayframe_payload(data: dict, photo_count: int) -> dict:
             if i >= len(captions) and isinstance(sk, dict):
                 summary = sk.get("summary") or sk.get("caption")
                 if summary:
-                    captions.append(str(summary)[:120])
+                    captions.append(_strip_caption_number(summary)[:120])
 
     while len(captions) < photo_count:
-        captions.append(f"第 {len(captions) + 1} 张")
+        captions.append("这一刻也值得记下来")
     captions = captions[:photo_count]
 
     tags = merged.get("hashtags") or merged.get("tags") or []

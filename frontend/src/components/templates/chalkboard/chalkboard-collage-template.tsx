@@ -299,7 +299,7 @@ export const ChalkboardCollageTemplate = forwardRef<
           const captionColor =
             CAPTION_COLORS[node.photoIndex % CAPTION_COLORS.length];
           const captionFit = fitCaption(
-            copy.captions[node.photoIndex] || `照片 ${node.photoIndex + 1}`,
+            copy.captions[node.photoIndex] || "这一刻也值得记下来",
             node.width,
           );
           const tapeTone =
@@ -353,7 +353,7 @@ export const ChalkboardCollageTemplate = forwardRef<
                   className={
                     cutoutUrl
                       ? "block h-full w-full object-contain"
-                      : "block h-full w-full bg-black/20 object-cover"
+                      : "block h-full w-full bg-black/20 object-contain"
                   }
                   style={
                     cutoutUrl
@@ -383,9 +383,6 @@ export const ChalkboardCollageTemplate = forwardRef<
                   textShadow: "0.4px 0.4px rgba(255,255,255,0.16)",
                 }}
               >
-                <span className="mr-1 text-[9px] opacity-55">
-                  {String(node.photoIndex + 1).padStart(2, "0")}
-                </span>
                 {captionFit.text}
               </figcaption>
               {editable && selectedPhotoIndex === node.photoIndex ? (

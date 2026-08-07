@@ -158,6 +158,8 @@ class PhotoAnalysisModel(BaseModel):
     importance: float = 0.5
     subject_type: str = "other"
     subject_summary: str = Field(default="", max_length=120)
+    cutout_group: list[str] = Field(default_factory=list, max_length=6)
+    include_human_parts: bool = False
     has_faces: bool = False
     focal_x: float = 0.5
     focal_y: float = 0.5
@@ -173,6 +175,11 @@ class PhotoAnalysisModel(BaseModel):
     @classmethod
     def validate_subject_type(cls, v: str) -> str:
         return v if _SUBJECT_RE.match(v) else "other"
+
+    @field_validator("cutout_group")
+    @classmethod
+    def normalize_cutout_group(cls, v: list[str]) -> list[str]:
+        return [str(item).strip()[:40] for item in v if str(item).strip()][:6]
 
     @field_validator("recommended_render")
     @classmethod

@@ -55,24 +55,27 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 黑板手账抠图
 
-`chalkboard-collage-v1` 会根据照片分析结果，最多选择 3 张主体清晰的图片运行本地 U²-Net 抠图。输出为带透明背景、白色描边和阴影的 PNG；单张抠图失败时会自动退回原始矩形照片。
+`chalkboard-collage-v1` 会根据照片分析结果，最多选择 3 张主体清晰的图片运行本地 BiRefNet 抠图。输出为带透明背景、白色描边和阴影的 PNG；单张抠图失败时会自动退回原始矩形照片。
 
-模型文件默认路径：
+默认按照片内容自动选择 1024px BiRefNet 模型：
 
-```text
-backend/.models/u2net/u2net.onnx
+- 人物、合照、检测到人脸，或主体组包含手/手臂：`birefnet-portrait`
+- 其他主体：`birefnet-general`
+
+人体相关主体会再使用 `birefnet-general` 复核，并只合并与主蒙版相交的组件。这样可以同时保留“手持物品 + 手 + 前臂”，以及覆盖在人物轮廓上的贴纸等视觉元素，不会把远处误识别的背景并入主体。
+
+两个完整版模型各约 973 MB，首次遇到对应类型时自动下载到 `backend/.models/rembg/`。运行时只保留当前模型的 ONNX session，避免同时占用两份模型内存；人体相关图片会依次运行两个模型，处理时间会相应增加。
+
+模型生成蒙版后会填补有限面积的内部孔洞，并对人物头发、衣服等轮廓做小尺度闭合。处理只修复封闭孔洞和窄缺口，不会填入与画面边缘连通的大块背景。视觉分析中的 `cutout_group` 和 `include_human_parts` 用于保证“手持物品 + 手 + 相连前臂”等主体组合使用人像语义模型整体保留。
+
+模型目录已被 Git 忽略。低资源环境可以切换约 224 MB 的 Lite 版本，但复杂人物轮廓的完整度可能降低：
+
+```env
+DAYFRAME_CUTOUT_MODEL=birefnet-general-lite
+DAYFRAME_CUTOUT_PORTRAIT_MODEL=birefnet-general-lite
 ```
 
-模型目录已被 Git 忽略。新环境需要自行准备 `u2net.onnx`，可从 rembg 的 U²-Net 模型发布页下载：
-
-```bash
-cd backend
-mkdir -p .models/u2net
-curl -L https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx \
-  -o .models/u2net/u2net.onnx
-```
-
-可在 `.env` 配置 `DAYFRAME_CUTOUT_ENABLED`、`DAYFRAME_CUTOUT_MODEL`、`DAYFRAME_MAX_CUTOUTS`、`DAYFRAME_CUTOUT_MAX_SIDE` 和 `DAYFRAME_CUTOUT_THREADS`，默认值见 `.env.example`。
+可在 `.env` 配置 `DAYFRAME_CUTOUT_ENABLED`、`DAYFRAME_CUTOUT_MODEL`、`DAYFRAME_CUTOUT_PORTRAIT_MODEL`、`DAYFRAME_CUTOUT_MODEL_DIR`、`DAYFRAME_MAX_CUTOUTS`、`DAYFRAME_CUTOUT_MAX_SIDE`、`DAYFRAME_CUTOUT_THREADS`、`DAYFRAME_CUTOUT_BOUNDS_THRESHOLD`、`DAYFRAME_CUTOUT_MAX_HOLE_RATIO` 和 `DAYFRAME_CUTOUT_CLOSING_RADIUS`，默认值见 `.env.example`。
 
 ## 与前端联调
 

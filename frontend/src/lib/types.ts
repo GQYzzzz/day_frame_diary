@@ -57,6 +57,8 @@ export type PhotoAnalysis = LayoutHint & {
   orientation: PhotoOrientation;
   capturedAt?: string;
   subjectSummary: string;
+  cutoutGroup: string[];
+  includeHumanParts: boolean;
   focalX: number;
   focalY: number;
   recommendedRender: PhotoRenderMode;

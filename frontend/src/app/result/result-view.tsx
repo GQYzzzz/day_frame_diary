@@ -276,16 +276,7 @@ export function ResultView() {
       ...current,
       [photoIndex]: mode,
     }));
-    setLayoutOverride(
-      layoutWithUpdatedNode(activeLayout, photoIndex, (node) => ({
-        ...node,
-        renderMode: mode,
-        zIndex:
-          mode === "cutout"
-            ? Math.max(40, node.zIndex)
-            : Math.min(19, node.zIndex),
-      })),
-    );
+    setLayoutOverride(undefined);
   }
 
   function onScaleSelected(factor: number) {
