@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ChalkboardLayoutEditor } from "@/components/chalkboard-layout-editor";
 import { PhotoAnalysisPanel } from "@/components/photo-analysis-panel";
 import { generateCopy } from "@/lib/api-client";
@@ -40,6 +47,17 @@ function formatDuration(durationMs: number | undefined): string | null {
   const minutes = Math.floor(seconds / 60);
   const remaining = Math.round(seconds % 60);
   return `${minutes} 分 ${remaining} 秒`;
+}
+
+function editableSnapshot(value: {
+  copy: DayFrameCopy | null;
+  layoutSeed: number;
+  renderModeOverrides: PhotoRenderModeOverrides;
+  layout?: TemplateLayout;
+  generationDurationMs?: number;
+  summaryPlacement: SummaryPlacement;
+}): string {
+  return JSON.stringify(value);
 }
 
 function analysesWithHero(
@@ -105,6 +123,7 @@ function initialCopyForSession(
 }
 
 export function ResultView() {
+  const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
   const session = useMemo(() => loadDayFrameSession(), []);
   const [copy, setCopy] = useState<DayFrameCopy | null>(
@@ -139,6 +158,19 @@ export function ResultView() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [regeneratingCopy, setRegeneratingCopy] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(
+    null,
+  );
+  const [savedSnapshot, setSavedSnapshot] = useState(() =>
+    editableSnapshot({
+      copy: initialCopyForSession(session),
+      layoutSeed: session?.layoutSeed ?? session?.createdAt ?? Date.now(),
+      renderModeOverrides: session?.renderModeOverrides ?? {},
+      layout: session?.layout,
+      generationDurationMs: session?.generationDurationMs,
+      summaryPlacement: session?.summaryPlacement ?? "end",
+    }),
+  );
 
   const templateEntry = TEMPLATE_REGISTRY[templateId];
   const TemplateComponent = templateEntry.Component;
@@ -180,9 +212,30 @@ export function ResultView() {
     });
     return derived.every(Boolean) ? derived : [];
   }, [session]);
+  const currentSnapshot = useMemo(
+    () =>
+      editableSnapshot({
+        copy,
+        layoutSeed,
+        renderModeOverrides,
+        layout: layoutOverride,
+        generationDurationMs,
+        summaryPlacement,
+      }),
+    [
+      copy,
+      layoutSeed,
+      renderModeOverrides,
+      layoutOverride,
+      generationDurationMs,
+      summaryPlacement,
+    ],
+  );
+  const hasUnsavedChanges = currentSnapshot !== savedSnapshot;
+  const dirtyRef = useRef(hasUnsavedChanges);
 
-  useEffect(() => {
-    if (!session || !copy) return;
+  const saveChanges = useCallback(() => {
+    if (!session || !copy || currentSnapshot === savedSnapshot) return;
     const next: DayFrameSessionV1 = {
       ...session,
       copy,
@@ -204,9 +257,12 @@ export function ResultView() {
       generationDurationMs,
       summaryPlacement,
     });
+    setSavedSnapshot(currentSnapshot);
   }, [
     session,
     copy,
+    currentSnapshot,
+    savedSnapshot,
     templateId,
     layoutSeed,
     renderModeOverrides,
@@ -214,6 +270,66 @@ export function ResultView() {
     generationDurationMs,
     summaryPlacement,
   ]);
+  const saveChangesRef = useRef(saveChanges);
+
+  useEffect(() => {
+    dirtyRef.current = hasUnsavedChanges;
+    saveChangesRef.current = saveChanges;
+  }, [hasUnsavedChanges, saveChanges]);
+
+  useEffect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+    }
+
+    function onPopState() {
+      if (!dirtyRef.current) return;
+      const shouldSave = window.confirm(
+        "当前作品有未保存的修改。点击“确定”保存修改后离开，点击“取消”不保存并离开。",
+      );
+      if (shouldSave) saveChangesRef.current();
+    }
+
+    function onDocumentClick(event: MouseEvent) {
+      if (!dirtyRef.current || event.defaultPrevented || event.button !== 0) {
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      const destination = `${url.pathname}${url.search}${url.hash}`;
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (destination === current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingNavigation(destination);
+    }
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("popstate", onPopState);
+    document.addEventListener("click", onDocumentClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", onPopState);
+      document.removeEventListener("click", onDocumentClick, true);
+    };
+  }, []);
+
+  function finishNavigation(save: boolean) {
+    const destination = pendingNavigation;
+    if (!destination) return;
+    if (save) saveChanges();
+    setPendingNavigation(null);
+    router.push(destination);
+  }
 
   if (!session || !copy) {
     return (
@@ -436,9 +552,27 @@ export function ResultView() {
                 </span>
               </>
             ) : null}
+            {" · "}
+            <span
+              className={
+                hasUnsavedChanges
+                  ? "font-medium text-amber-600 dark:text-amber-400"
+                  : "text-emerald-600 dark:text-emerald-400"
+              }
+            >
+              {hasUnsavedChanges ? "有未保存修改" : "已保存"}
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={saveChanges}
+            disabled={!hasUnsavedChanges}
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-sky-600 px-4 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+          >
+            {hasUnsavedChanges ? "保存修改" : "已保存"}
+          </button>
           <button
             type="button"
             onClick={onExport}
@@ -670,6 +804,50 @@ export function ResultView() {
           </div>
         </div>
       </div>
+
+      {pendingNavigation ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-dialog-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+            <h2
+              id="unsaved-dialog-title"
+              className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+            >
+              保存本次修改吗？
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+              你修改了文字或排版。保存后会更新最后编辑时间，并将作品排到历史记录前面。
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingNavigation(null)}
+                className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                继续编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => finishNavigation(false)}
+                className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                不保存并离开
+              </button>
+              <button
+                type="button"
+                onClick={() => finishNavigation(true)}
+                className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-500"
+              >
+                保存并离开
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
