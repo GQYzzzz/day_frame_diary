@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ProcessingOverlay } from "@/components/processing-overlay";
 import {
   checkBackendHealth,
@@ -28,7 +28,16 @@ export function UploadForm() {
   const [files, setFiles] = useState<File[]>([]);
   const [phase, setPhase] = useState<BusyPhase>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const filePreviews = useMemo(
+    () =>
+      files.map((file) => ({
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    [files],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -40,7 +49,34 @@ export function UploadForm() {
     };
   }, []);
 
-  async function onSubmit(e: React.FormEvent) {
+  useEffect(
+    () => () => {
+      filePreviews.forEach((item) => URL.revokeObjectURL(item.url));
+    },
+    [filePreviews],
+  );
+
+  function onFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (selected.length === 0) return;
+    if (files.length + selected.length > 9) {
+      setFileError(
+        `最多只能选择 9 张照片。当前已有 ${files.length} 张，本次选择了 ${selected.length} 张。`,
+      );
+      return;
+    }
+    setFiles((current) => [...current, ...selected]);
+    setFileError(null);
+    setError(null);
+  }
+
+  function removeFile(index: number) {
+    setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setFileError(null);
+  }
+
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     if (files.length < 1) {
@@ -86,6 +122,8 @@ export function UploadForm() {
         ),
         summaryPlacement: "end" as const,
         verticalBackground: "white" as const,
+        chalkboardBackground: "default" as const,
+        polkaBackground: "default" as const,
       };
       saveDayFrameSession(session);
       // 历史需把每张图转成 data URL 再写 localStorage，可能耗时数分钟；
@@ -133,11 +171,50 @@ export function UploadForm() {
             accept="image/*"
             multiple
             disabled={busy}
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            onChange={onFilesSelected}
             className="block w-full cursor-pointer text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-zinc-800 disabled:opacity-50 dark:text-zinc-300 dark:file:bg-zinc-100 dark:file:text-zinc-900 dark:hover:file:bg-zinc-200"
           />
           <p className="text-xs text-zinc-500">
-            已选择 {files.length} 张 · 生成文案约需 2～6 分钟（张数越多越久），请勿关闭页面。
+            已选择 {files.length}/9 张 · 可以多次打开选择框继续添加
+          </p>
+          {fileError ? (
+            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+              {fileError}
+            </p>
+          ) : null}
+          {filePreviews.length > 0 ? (
+            <div className="grid grid-cols-3 gap-3 pt-2 sm:grid-cols-5">
+              {filePreviews.map(({ file, url }, index) => (
+                <figure
+                  key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                  className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt={`已选择照片 ${index + 1}`}
+                    className="aspect-square w-full object-cover"
+                  />
+                  <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-black/60 px-2 py-1 text-[10px] text-white">
+                    <span>图 {index + 1}</span>
+                    <span className="truncate opacity-75">{file.name}</span>
+                  </figcaption>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => removeFile(index)}
+                    className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-sm leading-none text-white shadow hover:bg-red-600 disabled:opacity-50"
+                    aria-label={`删除照片 ${index + 1}`}
+                    title="删除这张照片"
+                  >
+                    ×
+                  </button>
+                </figure>
+              ))}
+            </div>
+          ) : null}
+          <p className="text-xs text-zinc-500">
+            生成文案约需 2～6 分钟（张数越多越久），请勿关闭页面。
           </p>
         </div>
 
@@ -146,7 +223,7 @@ export function UploadForm() {
             htmlFor="style"
             className="text-sm font-medium text-zinc-800 dark:text-zinc-100"
           >
-            风格
+            文字风格
           </label>
           <select
             id="style"
@@ -193,7 +270,7 @@ export function UploadForm() {
                   ? "手绘标注：一次 gpt-4o-mini 看图并返回 JSON（英文标注+轮廓坐标），前端绘制白线边框；通常 1～2 分钟。可选开启图像编辑见 backend/.env。"
                   : templateId === "image-collage-v1"
                     ? "图片拼接：双列交错排列，每张照片配一个说明气泡；按内容重要度自动调整画布。"
-                    : "黑板手账：自动选择主图与抠图，使用自适应拼贴、粉笔手写字、纸胶带和内容感知涂鸦。"}
+                    : "复古手账：自动选择主图与抠图，使用自适应拼贴、手写字、纸胶带和多种复古纸张背景。"}
           </p>
         </div>
 

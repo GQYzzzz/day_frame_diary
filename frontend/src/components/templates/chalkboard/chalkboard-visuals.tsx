@@ -154,13 +154,17 @@ export function ChalkDoodle({
   );
 }
 
-export function ChalkboardTexture() {
+export function ChalkboardTexture({ darkInk = false }: { darkInk?: boolean }) {
   return (
     <svg
       className="pointer-events-none absolute inset-0 h-full w-full"
       aria-hidden
       preserveAspectRatio="none"
-      style={{ zIndex: 0, opacity: 0.24, mixBlendMode: "screen" }}
+      style={{
+        zIndex: 0,
+        opacity: darkInk ? 0.13 : 0.24,
+        mixBlendMode: darkInk ? "multiply" : "screen",
+      }}
     >
       <filter id="dayframe-chalk-noise">
         <feTurbulence
@@ -171,18 +175,85 @@ export function ChalkboardTexture() {
         />
         <feColorMatrix
           type="matrix"
-          values="0 0 0 0 0.82
-                  0 0 0 0 0.84
-                  0 0 0 0 0.78
-                  0 0 0 .18 0"
+          values={`0 0 0 0 ${darkInk ? "0.22" : "0.82"}
+                  0 0 0 0 ${darkInk ? "0.20" : "0.84"}
+                  0 0 0 0 ${darkInk ? "0.16" : "0.78"}
+                  0 0 0 .18 0`}
         />
       </filter>
       <rect width="100%" height="100%" filter="url(#dayframe-chalk-noise)" />
-      <g stroke="rgba(255,255,255,0.12)" strokeWidth="0.8">
+      <g
+        stroke={darkInk ? "rgba(67,58,42,0.18)" : "rgba(255,255,255,0.12)"}
+        strokeWidth="0.8"
+      >
         <path d="M-20 130C110 119 251 141 420 126" />
         <path d="M-20 486C135 470 252 498 420 480" />
         <path d="M-20 810C138 796 281 823 420 806" />
       </g>
+    </svg>
+  );
+}
+
+export function VintageStarField() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      viewBox="0 0 390 1000"
+      preserveAspectRatio="none"
+      aria-hidden
+      style={{ zIndex: 1, opacity: 0.66 }}
+    >
+      <g fill="#e8d89b" stroke="#f3e7b7" strokeWidth="0.7">
+        <path d="m14 35 2 4.6 5 .4-3.8 3.2 1.2 4.8-4.4-2.6L9.7 48l1.1-4.8L7 40l5-.4 2-4.6Z" />
+        <path d="m109 74 1.7 3.8 4.1.3-3.1 2.7 1 4-3.7-2.2-3.5 2.2.9-4-3.1-2.7 4.1-.3 1.6-3.8Z" />
+        <path d="m72 61 1 2.3 2.5.2-1.9 1.6.6 2.5-2.2-1.3-2.1 1.3.5-2.5-1.9-1.6 2.5-.2 1-2.3Z" />
+        <path d="m22 174 1.5 3.4 3.8.3-2.9 2.5.9 3.6-3.3-1.9-3.2 1.9.8-3.6-2.8-2.5 3.7-.3 1.5-3.4Z" />
+        <path d="m356 535 1.4 3.2 3.5.3-2.7 2.3.9 3.4-3.1-1.8-3 1.8.8-3.4-2.7-2.3 3.6-.3 1.4-3.2Z" />
+        <path d="m385 620 2 4.7 5 .4-3.8 3.2 1.2 4.9-4.4-2.7-4.3 2.7 1.1-4.9-3.8-3.2 5-.4 2-4.7Z" />
+        <path d="m354 754 1.6 3.6 3.9.3-3 2.6 1 3.8-3.5-2.1-3.3 2.1.8-3.8-2.9-2.6 3.9-.3 1.5-3.6Z" />
+        <path d="m302 883 1.2 2.7 3 .2-2.3 2 .7 2.9-2.6-1.6-2.5 1.6.7-2.9-2.3-2 3-.2 1.1-2.7Z" />
+        <circle cx="80" cy="115" r="1.2" />
+        <circle cx="326" cy="318" r="1.1" />
+        <circle cx="44" cy="518" r="1" />
+        <circle cx="344" cy="844" r="1.3" />
+      </g>
+    </svg>
+  );
+}
+
+export function CrumpledPaperTexture() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      preserveAspectRatio="none"
+      aria-hidden
+      style={{ zIndex: 0, opacity: 0.34, mixBlendMode: "multiply" }}
+    >
+      <filter id="dayframe-crumpled-paper">
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.012 0.025"
+          numOctaves="4"
+          seed="43"
+          result="noise"
+        />
+        <feDiffuseLighting
+          in="noise"
+          lightingColor="#ffffff"
+          surfaceScale="4"
+          diffuseConstant="1.2"
+          result="light"
+        >
+          <feDistantLight azimuth="225" elevation="42" />
+        </feDiffuseLighting>
+        <feBlend in="SourceGraphic" in2="light" mode="multiply" />
+      </filter>
+      <rect
+        width="100%"
+        height="100%"
+        fill="#f4f4f1"
+        filter="url(#dayframe-crumpled-paper)"
+      />
     </svg>
   );
 }
@@ -220,12 +291,17 @@ export function PaperTape({ side, tone = "kraft" }: TapeProps) {
   );
 }
 
-export function ChalkTitleUnderline() {
+export function ChalkTitleUnderline({
+  color = "#f2eadc",
+}: {
+  color?: string;
+}) {
   return (
     <svg
-      className="mx-auto mt-2 block h-4 w-[86%] text-[#f2eadc]"
+      className="mx-auto mt-2 block h-4 w-[86%]"
       viewBox="0 0 300 20"
       fill="none"
+      style={{ color }}
       aria-hidden
     >
       <path

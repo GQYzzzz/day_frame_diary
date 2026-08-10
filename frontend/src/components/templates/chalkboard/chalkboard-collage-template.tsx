@@ -11,7 +11,9 @@ import {
   ChalkboardTexture,
   ChalkDoodle,
   ChalkTitleUnderline,
+  CrumpledPaperTexture,
   PaperTape,
+  VintageStarField,
   type ChalkDoodleKind,
 } from "@/components/templates/chalkboard/chalkboard-visuals";
 import { computeChalkboardLayout } from "@/lib/templates/chalkboard/compute-chalkboard-layout";
@@ -20,6 +22,7 @@ import {
   fitCaption,
   fitTitle,
 } from "@/lib/templates/chalkboard/text-fit";
+import { chalkboardBackgroundOption } from "@/lib/templates/vertical-backgrounds";
 import type { TemplateRenderProps } from "@/lib/templates/registry";
 import type {
   PhotoAnalysis,
@@ -38,6 +41,7 @@ const FRAME_CLIPS = [
   "polygon(0 1%, 99% 2%, 100% 97%, 2% 100%)",
 ];
 const CAPTION_COLORS = ["#f4eee2", "#e9c1c5", "#ead88d", "#bad8cf"];
+const LIGHT_CAPTION_COLORS = ["#3f4039", "#9a5465", "#856713", "#3d7168"];
 const FALLBACK_CAPTIONS = [
   "这一幕先好好收下",
   "刚好留下眼前这一刻",
@@ -105,6 +109,7 @@ export const ChalkboardCollageTemplate = forwardRef<
     onLayoutChange,
     summaryPlacement = "end",
     onSummaryPlacementChange,
+    chalkboardBackground,
   },
   ref,
 ) {
@@ -170,6 +175,11 @@ export const ChalkboardCollageTemplate = forwardRef<
     .slice(0, 5);
   const titleFit = fitTitle(copy.title);
   const diaryType = diaryTypography(copy.diary);
+  const background = chalkboardBackgroundOption(chalkboardBackground);
+  const lightBoard = background.light === true;
+  const vintageBoard = background.texture === "vintage";
+  const crumpledPaper = background.texture === "crumpled";
+  const accentColors = lightBoard ? LIGHT_CAPTION_COLORS : CAPTION_COLORS;
 
   function onPhotoPointerDown(
     event: ReactPointerEvent<HTMLElement>,
@@ -272,7 +282,9 @@ export const ChalkboardCollageTemplate = forwardRef<
 
   const summaryBlock = (
     <section
-      className={`relative z-[70] mx-6 border-t border-dashed border-white/35 px-2 pt-5 ${
+      className={`relative z-[70] mx-6 border-t border-dashed px-2 pt-5 ${
+        lightBoard ? "border-[#5b5240]/35" : "border-white/35"
+      } ${
         summaryPlacement === "start" ? "mt-6 mb-2" : "mt-5"
       }`}
       onPointerDown={onSummaryPointerDown}
@@ -294,17 +306,29 @@ export const ChalkboardCollageTemplate = forwardRef<
           上下拖动总结
         </span>
       ) : null}
-      <p className="mb-2 text-[9px] uppercase tracking-[0.28em] text-[#e8d388]/65">
+      <p
+        className={`mb-2 text-[9px] uppercase tracking-[0.28em] ${
+          lightBoard ? "text-[#75631d]/75" : "text-[#e8d388]/65"
+        }`}
+      >
         TODAY&apos;S LITTLE STORY
       </p>
       {copy.diary ? (
         <p
-          className="border-l border-white/25 pl-3 whitespace-pre-wrap text-[13px] leading-[1.85] text-white/82"
+          className={`border-l pl-3 whitespace-pre-wrap text-[13px] leading-[1.85] ${
+            lightBoard
+              ? "border-[#5b5240]/30 text-[#38342d]/85"
+              : "border-white/25 text-white/82"
+          }`}
           style={{
             fontFamily: CHALK_FONT,
             fontSize: diaryType.fontSize,
             lineHeight: diaryType.lineHeight,
-            textShadow: "0.4px 0.4px rgba(255,255,255,0.12)",
+            textShadow: lightBoard
+              ? "0.4px 0.4px rgba(80,65,40,0.08)"
+              : vintageBoard
+                ? "0 1px 2px rgba(0,0,0,0.5)"
+                : "0.4px 0.4px rgba(255,255,255,0.12)",
           }}
         >
           {copy.diary}
@@ -315,7 +339,7 @@ export const ChalkboardCollageTemplate = forwardRef<
           <span
             key={tag}
             style={{
-              color: CAPTION_COLORS[index % CAPTION_COLORS.length],
+              color: accentColors[index % accentColors.length],
             }}
           >
             {tag}
@@ -330,23 +354,34 @@ export const ChalkboardCollageTemplate = forwardRef<
       ref={ref}
       data-dayframe-export-root
       data-layout-variant={layout.variantId}
-      data-export-bg="#111715"
-      className="relative w-[390px] shrink-0 isolate overflow-hidden bg-[#111715] pb-8 pt-7 text-[#f6f1e7] shadow-[0_20px_60px_-30px_rgba(0,0,0,0.65)]"
+      data-export-bg={background.color}
+      className={`relative w-[390px] shrink-0 isolate overflow-hidden pb-8 pt-7 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.65)] ${
+        lightBoard ? "text-[#34312b]" : "text-[#f6f1e7]"
+      }`}
       style={{
+        backgroundColor: background.color,
         backgroundImage:
-          "radial-gradient(ellipse at 14% 8%, rgba(255,255,255,0.07), transparent 28%), radial-gradient(ellipse at 88% 42%, rgba(255,255,255,0.035), transparent 32%), linear-gradient(118deg, rgba(255,255,255,0.018), transparent 46%, rgba(255,255,255,0.026))",
+          background.backgroundImage ??
+          (lightBoard
+            ? "radial-gradient(ellipse at 14% 8%, rgba(255,255,255,0.24), transparent 28%), radial-gradient(ellipse at 88% 42%, rgba(92,75,43,0.045), transparent 32%), linear-gradient(118deg, rgba(255,255,255,0.08), transparent 46%, rgba(85,69,39,0.035))"
+            : "radial-gradient(ellipse at 14% 8%, rgba(255,255,255,0.07), transparent 28%), radial-gradient(ellipse at 88% 42%, rgba(255,255,255,0.035), transparent 32%), linear-gradient(118deg, rgba(255,255,255,0.018), transparent 46%, rgba(255,255,255,0.026))"),
         backgroundSize: "100% 100%",
         fontFamily: CHALK_FONT,
       }}
     >
-      <ChalkboardTexture />
+      {crumpledPaper ? (
+        <CrumpledPaperTexture />
+      ) : (
+        <ChalkboardTexture darkInk={lightBoard} />
+      )}
+      {vintageBoard ? <VintageStarField /> : null}
       <ChalkDoodle
         kind="heart"
         x={17}
         y={48}
         size={25}
         rotate={-12}
-        color="#e8b4bb"
+        color={lightBoard ? "#9a5362" : "#e8b4bb"}
       />
       <ChalkDoodle
         kind="star"
@@ -354,7 +389,7 @@ export const ChalkboardCollageTemplate = forwardRef<
         y={52}
         size={27}
         rotate={10}
-        color="#e8d388"
+        color={lightBoard ? "#846713" : "#e8d388"}
       />
       <ChalkDoodle
         kind="swirl"
@@ -362,15 +397,22 @@ export const ChalkboardCollageTemplate = forwardRef<
         y={92}
         size={38}
         rotate={8}
+        color={lightBoard ? "#4f493f" : "#f5efe2"}
         opacity={0.45}
       />
 
       <header className="relative z-[2] px-9 text-center">
-        <p className="text-[9px] uppercase tracking-[0.32em] text-white/42">
+        <p
+          className={`text-[9px] uppercase tracking-[0.32em] ${
+            lightBoard ? "text-[#4d483f]/55" : "text-white/42"
+          }`}
+        >
           DAYFRAME · {dayLabel(copy.photoAnalyses)}
         </p>
         <h1
-          className="mt-2 overflow-hidden break-words font-normal leading-[1.18] text-[#f8f3e8]"
+          className={`mt-2 overflow-hidden break-words font-normal leading-[1.18] ${
+            lightBoard ? "text-[#302d27]" : "text-[#f8f3e8]"
+          }`}
           title={titleFit.truncated ? copy.title : undefined}
           style={{
             fontFamily: TITLE_FONT,
@@ -379,13 +421,16 @@ export const ChalkboardCollageTemplate = forwardRef<
             display: "-webkit-box",
             WebkitBoxOrient: "vertical",
             WebkitLineClamp: 2,
-            textShadow:
-              "0.6px 0 rgba(255,255,255,0.35), -0.4px 0.5px rgba(255,255,255,0.22)",
+            textShadow: lightBoard
+              ? "0.5px 0 rgba(66,54,35,0.18), -0.4px 0.5px rgba(66,54,35,0.1)"
+              : vintageBoard
+                ? "0 1px 3px rgba(0,0,0,0.55)"
+                : "0.6px 0 rgba(255,255,255,0.35), -0.4px 0.5px rgba(255,255,255,0.22)",
           }}
         >
           {titleFit.text}
         </h1>
-        <ChalkTitleUnderline />
+        <ChalkTitleUnderline color={lightBoard ? "#4c463b" : "#f2eadc"} />
       </header>
 
       {summaryPlacement === "start" ? summaryBlock : null}
@@ -405,7 +450,7 @@ export const ChalkboardCollageTemplate = forwardRef<
               : undefined;
           const imageHeight = Math.max(70, node.height - 38);
           const captionColor =
-            CAPTION_COLORS[node.photoIndex % CAPTION_COLORS.length];
+            accentColors[node.photoIndex % accentColors.length];
           const captionFit = fitCaption(
             copy.captions[node.photoIndex] ||
               FALLBACK_CAPTIONS[node.photoIndex % FALLBACK_CAPTIONS.length],
@@ -489,7 +534,11 @@ export const ChalkboardCollageTemplate = forwardRef<
                   WebkitLineClamp: 2,
                   color: captionColor,
                   fontFamily: CHALK_FONT,
-                  textShadow: "0.4px 0.4px rgba(255,255,255,0.16)",
+                  textShadow: lightBoard
+                    ? "0.4px 0.4px rgba(69,58,38,0.1)"
+                    : vintageBoard
+                      ? "0 1px 2px rgba(0,0,0,0.55)"
+                      : "0.4px 0.4px rgba(255,255,255,0.16)",
                 }}
               >
                 {captionFit.text}
@@ -519,7 +568,7 @@ export const ChalkboardCollageTemplate = forwardRef<
               y={position.y}
               size={position.size}
               rotate={position.rotate}
-              color={CAPTION_COLORS[index % CAPTION_COLORS.length]}
+              color={accentColors[index % accentColors.length]}
               opacity={node.renderMode === "cutout" ? 0.9 : 0.7}
               zIndex={65 + index}
             />
@@ -537,7 +586,7 @@ export const ChalkboardCollageTemplate = forwardRef<
             y={0}
             size={68}
             rotate={-2}
-            color="#f2eadc"
+            color={lightBoard ? "#4b463d" : "#f2eadc"}
             opacity={0.72}
             zIndex={2}
           />
@@ -546,11 +595,15 @@ export const ChalkboardCollageTemplate = forwardRef<
             x={318}
             y={2}
             size={20}
-            color="#e8d388"
+            color={lightBoard ? "#806416" : "#e8d388"}
             opacity={0.8}
             zIndex={2}
           />
-          <p className="absolute bottom-3 left-0 text-[10px] tracking-[0.18em] text-white/38">
+          <p
+            className={`absolute bottom-3 left-0 text-[10px] tracking-[0.18em] ${
+              lightBoard ? "text-[#4c473e]/55" : "text-white/38"
+            }`}
+          >
             FRAME YOUR DAY
           </p>
           <span

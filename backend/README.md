@@ -53,7 +53,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - 环境变量：`OPENAI_IMAGE_MODEL`、`HAND_DRAWN_USE_IMAGE_API`（见 `.env.example`）
 - **生成较慢 / Swagger 一直 Loading**：属正常等待模型；大图会先压缩再发送。若超过 `OPENAI_TIMEOUT`（默认 360s）会返回 **504**；请看运行 uvicorn 的终端是否有报错。
 
-## 黑板手账抠图
+## 复古手账抠图
 
 `chalkboard-collage-v1` 会根据照片分析结果，最多选择 3 张主体清晰的图片运行本地 BiRefNet 抠图。输出为带透明背景、白色描边和阴影的 PNG；单张抠图失败时会自动退回原始矩形照片。
 

@@ -20,6 +20,7 @@ import {
   fitTitle,
 } from "@/lib/templates/chalkboard/text-fit";
 import { computePolkaLayout } from "@/lib/templates/polka/compute-polka-layout";
+import { polkaBackgroundOption } from "@/lib/templates/vertical-backgrounds";
 import type { TemplateRenderProps } from "@/lib/templates/registry";
 import type {
   PhotoAnalysis,
@@ -104,6 +105,7 @@ export const PolkaScrapbookTemplate = forwardRef<
     onLayoutChange,
     summaryPlacement = "end",
     onSummaryPlacementChange,
+    polkaBackground,
   },
   ref,
 ) {
@@ -169,6 +171,7 @@ export const PolkaScrapbookTemplate = forwardRef<
     .slice(0, 5);
   const titleFit = fitTitle(copy.title);
   const diaryType = diaryTypography(copy.diary);
+  const background = polkaBackgroundOption(polkaBackground);
 
   function onPhotoPointerDown(
     event: ReactPointerEvent<HTMLElement>,
@@ -329,11 +332,13 @@ export const PolkaScrapbookTemplate = forwardRef<
       ref={ref}
       data-dayframe-export-root
       data-layout-variant={layout.variantId}
-      data-export-bg="#c8c6c2"
-      className="relative w-[390px] shrink-0 isolate overflow-hidden bg-[#c8c6c2] pb-8 pt-7 text-[#292724] shadow-[0_20px_60px_-30px_rgba(0,0,0,.4)]"
+      data-export-bg={background.color}
+      className="relative w-[390px] shrink-0 isolate overflow-hidden pb-8 pt-7 text-[#292724] shadow-[0_20px_60px_-30px_rgba(0,0,0,.4)]"
       style={{
-        backgroundImage:
-          "radial-gradient(circle, rgba(255,255,255,.94) 2.15px, transparent 2.35px)",
+        backgroundColor: background.color,
+        backgroundImage: `radial-gradient(circle, ${
+          background.dotColor ?? "rgba(255,255,255,.94)"
+        } 2.15px, transparent 2.35px)`,
         backgroundSize: "15px 15px",
         fontFamily: HAND_FONT,
       }}

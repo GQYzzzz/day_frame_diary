@@ -20,8 +20,13 @@ import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import { computeChalkboardLayout } from "@/lib/templates/chalkboard/compute-chalkboard-layout";
 import { computePolkaLayout } from "@/lib/templates/polka/compute-polka-layout";
 import {
+  CHALKBOARD_BACKGROUND_OPTIONS,
+  DEFAULT_CHALKBOARD_BACKGROUND,
   DEFAULT_VERTICAL_BACKGROUND,
+  normalizePolkaBackground,
+  POLKA_BACKGROUND_OPTIONS,
   VERTICAL_BACKGROUND_OPTIONS,
+  type BackgroundOption,
 } from "@/lib/templates/vertical-backgrounds";
 import {
   normalizeTemplateId,
@@ -30,8 +35,10 @@ import {
 } from "@/lib/templates/registry";
 import { STYLE_PRESETS } from "@/lib/types";
 import type {
+  ChalkboardBackground,
   DayFrameCopy,
   DayFrameSessionV1,
+  PolkaBackground,
   PhotoAnalysis,
   PhotoLayoutNode,
   PhotoRenderModeOverrides,
@@ -55,6 +62,57 @@ function formatDuration(durationMs: number | undefined): string | null {
   return `${minutes} 分 ${remaining} 秒`;
 }
 
+function BackgroundColorPicker<T extends string>({
+  options,
+  selected,
+  description,
+  onSelect,
+}: {
+  options: ReadonlyArray<BackgroundOption<T>>;
+  selected: T;
+  description: string;
+  onSelect: (id: T) => void;
+}) {
+  return (
+    <section className="space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/55">
+      <div>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+          背景颜色
+        </h2>
+        <p className="mt-1 text-xs text-zinc-500">{description}</p>
+      </div>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+        {options.map((option) => {
+          const isSelected = selected === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => onSelect(option.id)}
+              className={`flex min-w-0 flex-col items-center gap-1.5 rounded-xl border px-1.5 py-2 text-[11px] transition ${
+                isSelected
+                  ? "border-sky-500 bg-sky-50 text-sky-700 ring-2 ring-sky-500/20 dark:bg-sky-950/40 dark:text-sky-300"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+              }`}
+              aria-pressed={isSelected}
+            >
+              <span
+                className="h-7 w-7 rounded-full border border-black/15 shadow-sm"
+                style={{
+                  backgroundColor: option.color,
+                  backgroundImage: option.backgroundImage,
+                }}
+                aria-hidden
+              />
+              <span className="truncate">{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function editableSnapshot(value: {
   copy: DayFrameCopy | null;
   layoutSeed: number;
@@ -63,6 +121,8 @@ function editableSnapshot(value: {
   generationDurationMs?: number;
   summaryPlacement: SummaryPlacement;
   verticalBackground: VerticalBackground;
+  chalkboardBackground: ChalkboardBackground;
+  polkaBackground: PolkaBackground;
 }): string {
   return JSON.stringify(value);
 }
@@ -170,6 +230,13 @@ export function ResultView() {
     useState<VerticalBackground>(
       () => session?.verticalBackground ?? DEFAULT_VERTICAL_BACKGROUND,
     );
+  const [chalkboardBackground, setChalkboardBackground] =
+    useState<ChalkboardBackground>(
+      () => session?.chalkboardBackground ?? DEFAULT_CHALKBOARD_BACKGROUND,
+    );
+  const [polkaBackground, setPolkaBackground] = useState<PolkaBackground>(
+    () => normalizePolkaBackground(session?.polkaBackground),
+  );
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(
     null,
   );
@@ -193,6 +260,10 @@ export function ResultView() {
       summaryPlacement: session?.summaryPlacement ?? "end",
       verticalBackground:
         session?.verticalBackground ?? DEFAULT_VERTICAL_BACKGROUND,
+      chalkboardBackground:
+        session?.chalkboardBackground ?? DEFAULT_CHALKBOARD_BACKGROUND,
+      polkaBackground:
+        normalizePolkaBackground(session?.polkaBackground),
     }),
   );
 
@@ -259,6 +330,8 @@ export function ResultView() {
         generationDurationMs,
         summaryPlacement,
         verticalBackground,
+        chalkboardBackground,
+        polkaBackground,
       }),
     [
       copy,
@@ -268,6 +341,8 @@ export function ResultView() {
       generationDurationMs,
       summaryPlacement,
       verticalBackground,
+      chalkboardBackground,
+      polkaBackground,
     ],
   );
   const hasUnsavedChanges = currentSnapshot !== savedSnapshot;
@@ -286,6 +361,8 @@ export function ResultView() {
       generationDurationMs,
       summaryPlacement,
       verticalBackground,
+      chalkboardBackground,
+      polkaBackground,
     };
     saveDayFrameSession(next);
     updateCurrentHistoryEntry({
@@ -297,6 +374,8 @@ export function ResultView() {
       generationDurationMs,
       summaryPlacement,
       verticalBackground,
+      chalkboardBackground,
+      polkaBackground,
     });
     setSavedSnapshot(currentSnapshot);
   }, [
@@ -311,6 +390,8 @@ export function ResultView() {
     generationDurationMs,
     summaryPlacement,
     verticalBackground,
+    chalkboardBackground,
+    polkaBackground,
   ]);
   const saveChangesRef = useRef(saveChanges);
 
@@ -679,6 +760,8 @@ export function ResultView() {
               summaryPlacement={summaryPlacement}
               onSummaryPlacementChange={setSummaryPlacement}
               verticalBackground={verticalBackground}
+              chalkboardBackground={chalkboardBackground}
+              polkaBackground={polkaBackground}
             />
           </div>
         </div>
@@ -709,41 +792,26 @@ export function ResultView() {
           ) : null}
 
           {templateId === "vertical-v1" ? (
-            <section className="space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/55">
-              <div>
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  背景颜色
-                </h2>
-                <p className="mt-1 text-xs text-zinc-500">
-                  选择竖版长图的页面底色，导出图片会保持当前选择。
-                </p>
-              </div>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {VERTICAL_BACKGROUND_OPTIONS.map((option) => {
-                  const selected = verticalBackground === option.id;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => setVerticalBackground(option.id)}
-                      className={`flex min-w-0 flex-col items-center gap-1.5 rounded-xl border px-1.5 py-2 text-[11px] transition ${
-                        selected
-                          ? "border-sky-500 bg-sky-50 text-sky-700 ring-2 ring-sky-500/20 dark:bg-sky-950/40 dark:text-sky-300"
-                          : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
-                      }`}
-                      aria-pressed={selected}
-                    >
-                      <span
-                        className="h-7 w-7 rounded-full border border-black/15 shadow-sm"
-                        style={{ backgroundColor: option.color }}
-                        aria-hidden
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+            <BackgroundColorPicker
+              options={VERTICAL_BACKGROUND_OPTIONS}
+              selected={verticalBackground}
+              description="选择竖版长图的页面底色，导出图片会保持当前选择。"
+              onSelect={setVerticalBackground}
+            />
+          ) : templateId === "chalkboard-collage-v1" ? (
+            <BackgroundColorPicker
+              options={CHALKBOARD_BACKGROUND_OPTIONS}
+              selected={chalkboardBackground}
+              description="切换复古纸张背景，手写字、照片排版和装饰样式保持不变。"
+              onSelect={setChalkboardBackground}
+            />
+          ) : templateId === "polka-scrapbook-v1" ? (
+            <BackgroundColorPicker
+              options={POLKA_BACKGROUND_OPTIONS}
+              selected={polkaBackground}
+              description="切换参考图风格的柔和底色与圆点配色，手账装饰保持不变。"
+              onSelect={setPolkaBackground}
+            />
           ) : null}
 
           <div className="space-y-2">

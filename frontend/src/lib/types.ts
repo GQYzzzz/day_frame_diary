@@ -10,7 +10,7 @@ export type StyleId = (typeof STYLE_PRESETS)[number]["id"];
 
 export const TEMPLATE_PRESETS = [
   { id: "vertical-v1", label: "竖版长图" },
-  { id: "chalkboard-collage-v1", label: "黑板手账" },
+  { id: "chalkboard-collage-v1", label: "复古手账" },
   { id: "polka-scrapbook-v1", label: "波点拼贴" },
   { id: "hand-drawn-v1", label: "手绘标注" },
   { id: "image-collage-v1", label: "图片拼接" },
@@ -49,6 +49,22 @@ export type VerticalBackground =
   | "gray"
   | "light-brown"
   | "black";
+export type ChalkboardBackground =
+  | "default"
+  | "black"
+  | "dark-gray"
+  | "dark-brown"
+  | "dark-blue"
+  | "pale-yellow"
+  | "vintage-gray"
+  | "vintage-red"
+  | "vintage-green"
+  | "crumpled-paper";
+export type PolkaBackground =
+  | "default"
+  | "pale-blue"
+  | "pale-green"
+  | "pale-pink";
 export type PhotoOrientation = "portrait" | "landscape" | "square";
 export type PhotoLayoutRole = "hero" | "support" | "detail";
 
@@ -190,4 +206,6 @@ export type DayFrameSessionV1 = {
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
   verticalBackground?: VerticalBackground;
+  chalkboardBackground?: ChalkboardBackground;
+  polkaBackground?: PolkaBackground;
 };

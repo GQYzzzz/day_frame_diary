@@ -2,9 +2,11 @@ import { normalizeTemplateId } from "@/lib/templates/registry";
 import { saveDayFrameSession } from "@/lib/session";
 import {
   templateNeedsEmbeddedPhotos,
+  type ChalkboardBackground,
   type DayFrameCopy,
   type DayFrameSessionV1,
   type CutoutAsset,
+  type PolkaBackground,
   type PhotoRenderModeOverrides,
   type SummaryPlacement,
   type StyleId,
@@ -35,6 +37,8 @@ export type HistoryEntryV1 = {
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
   verticalBackground?: VerticalBackground;
+  chalkboardBackground?: ChalkboardBackground;
+  polkaBackground?: PolkaBackground;
 };
 
 function newId(): string {
@@ -158,6 +162,8 @@ export async function addHistoryFromSession(
     generationDurationMs: session.generationDurationMs,
     summaryPlacement: session.summaryPlacement,
     verticalBackground: session.verticalBackground,
+    chalkboardBackground: session.chalkboardBackground,
+    polkaBackground: session.polkaBackground,
   };
 
   writeWithEviction([entry, ...readRaw()]);
@@ -203,6 +209,8 @@ export function updateCurrentHistoryEntry(patch: {
   generationDurationMs?: number;
   summaryPlacement?: SummaryPlacement;
   verticalBackground?: VerticalBackground;
+  chalkboardBackground?: ChalkboardBackground;
+  polkaBackground?: PolkaBackground;
 }): void {
   const id = getCurrentHistoryId();
   if (!id) return;
@@ -259,6 +267,8 @@ export function openHistoryEntry(id: string): boolean {
     generationDurationMs: entry.generationDurationMs,
     summaryPlacement: entry.summaryPlacement,
     verticalBackground: entry.verticalBackground,
+    chalkboardBackground: entry.chalkboardBackground,
+    polkaBackground: entry.polkaBackground,
   };
   saveDayFrameSession(session);
   setCurrentHistoryId(id);

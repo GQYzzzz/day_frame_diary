@@ -8,8 +8,10 @@ import { PolkaScrapbookTemplate } from "@/components/templates/scrapbook/polka-s
 import { VerticalDiaryTemplate } from "@/components/templates/vertical-diary-template";
 import {
   DEFAULT_TEMPLATE_ID,
+  type ChalkboardBackground,
   type CutoutAsset,
   type DayFrameCopy,
+  type PolkaBackground,
   type PhotoRenderModeOverrides,
   type SketchRenderMode,
   type StyleId,
@@ -35,6 +37,8 @@ export type TemplateRenderProps = {
   summaryPlacement?: SummaryPlacement;
   onSummaryPlacementChange?: (placement: SummaryPlacement) => void;
   verticalBackground?: VerticalBackground;
+  chalkboardBackground?: ChalkboardBackground;
+  polkaBackground?: PolkaBackground;
 };
 
 type TemplateEntry = {
@@ -76,7 +80,7 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
   },
   "chalkboard-collage-v1": {
     id: "chalkboard-collage-v1",
-    label: "黑板手账",
+    label: "复古手账",
     previewWidth: 390,
     exportBackground: "#111715",
     Component: ChalkboardCollageTemplate,
