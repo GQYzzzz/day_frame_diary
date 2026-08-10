@@ -5,3 +5,7 @@ __pycache__/
 *.py[cod]
 uploads/*
 !uploads/.gitkeep
+quality_reports/*
+!quality_reports/.gitkeep
+quality_cases/photos/*
+quality_cases/manifest.local.json

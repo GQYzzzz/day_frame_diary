@@ -1,6 +1,10 @@
 import { getApiBase } from "@/lib/api";
 import { normalizeSketches } from "@/lib/sketch/normalize-sketch";
 import type {
+  AiPosterCandidate,
+  AiPosterMetadata,
+  AiPosterTemplateId,
+  AiPosterTemplateMetadata,
   CutoutAsset,
   DayFrameCopy,
   LayoutHint,
@@ -19,6 +23,14 @@ export type GenerateResult = {
   annotatedPhotos?: string[];
   sketchRenderMode?: SketchRenderMode;
   cutoutAssets?: CutoutAsset[];
+};
+
+export type AiPosterGenerateResult = {
+  generatedPhotos: string[];
+  generationDurationMs: number;
+  metadata: Omit<AiPosterMetadata, "sourcePhotos">;
+  candidates: AiPosterCandidate[];
+  warnings: string[];
 };
 
 const UPLOAD_TIMEOUT_MS = 60_000;
@@ -291,6 +303,202 @@ export async function uploadImages(files: File[]): Promise<UploadItem[]> {
     throw new Error("服务器未返回图片地址。");
   }
   return items;
+}
+
+function absoluteApiUrl(path: string): string {
+  if (/^https?:\/\//.test(path) || path.startsWith("data:")) return path;
+  return `${getApiBase()}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+export async function listAiPosterTemplates(): Promise<
+  AiPosterTemplateMetadata[]
+> {
+  const result = await fetchJson<{
+    templates?: Array<Record<string, unknown>>;
+  }>(`${getApiBase()}/api/v1/ai-posters/templates`, {}, 15_000);
+  if (!result.ok) {
+    throw new Error(formatApiError(result.body, "无法读取 AI 模板。"));
+  }
+  const templates = result.data.templates;
+  if (!Array.isArray(templates)) {
+    throw new Error("AI 模板接口返回格式异常。");
+  }
+  return templates.flatMap((raw) => {
+    const id = raw.id;
+    const previewUrl = raw.preview_url;
+    if (
+      (id !== "morning-ride" && id !== "citywalk") ||
+      typeof raw.label !== "string" ||
+      typeof raw.version !== "string" ||
+      typeof raw.aspect_ratio !== "string" ||
+      typeof raw.description !== "string" ||
+      typeof raw.disclaimer !== "string" ||
+      typeof previewUrl !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      id,
+      label: raw.label,
+      version: raw.version,
+      aspectRatio: raw.aspect_ratio,
+      description: raw.description,
+      disclaimer: raw.disclaimer,
+      previewUrl: absoluteApiUrl(previewUrl),
+    }];
+  });
+}
+
+export async function generateAiPoster(
+  styleId: StyleId,
+  filenames: string[],
+  aiTemplateId: AiPosterTemplateId,
+  additionalPrompt = "",
+  candidateCount: 1 | 2 = 2,
+): Promise<AiPosterGenerateResult> {
+  const result = await fetchJson<Record<string, unknown>>(
+    `${getApiBase()}/api/v1/ai-posters/generate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "ai-poster-v1",
+        style_id: styleId,
+        ai_template_id: aiTemplateId,
+        filenames,
+        additional_prompt: additionalPrompt,
+        candidate_count: candidateCount,
+      }),
+    },
+    getGenerateTimeoutMs(),
+  );
+  if (!result.ok) {
+    throw new Error(formatApiError(result.body, "AI 成片生成失败。"));
+  }
+  const body = result.data;
+  const generated = body.generated_photos;
+  if (
+    !Array.isArray(generated) ||
+    generated.length < 1 ||
+    generated.length > 2 ||
+    !generated.every((url) => typeof url === "string")
+  ) {
+    throw new Error("AI 成片接口未返回有效图片。");
+  }
+  const aiTemplate = body.ai_template_id;
+  if (aiTemplate !== "morning-ride" && aiTemplate !== "citywalk") {
+    throw new Error("AI 成片接口返回了未知模板。");
+  }
+  const rawCandidates = Array.isArray(body.candidates)
+    ? body.candidates
+    : [];
+  const candidates = rawCandidates.flatMap((value, index) => {
+    const raw = asRecord(value);
+    if (!raw || typeof raw.url !== "string") return [];
+    const quality = asRecord(raw.quality);
+    return [{
+      id:
+        typeof raw.id === "string"
+          ? raw.id
+          : `candidate-${Date.now()}-${index}`,
+      photoUrl: raw.url,
+      aiTemplateId: aiTemplate,
+      aiTemplateLabel:
+        typeof body.ai_template_label === "string"
+          ? body.ai_template_label
+          : aiTemplate,
+      templateVersion:
+        typeof body.template_version === "string"
+          ? body.template_version
+          : "unknown",
+      styleId,
+      additionalPrompt,
+      model:
+        typeof raw.model === "string"
+          ? raw.model
+          : typeof body.model === "string"
+            ? body.model
+            : "unknown",
+      size:
+        typeof raw.size === "string"
+          ? raw.size
+          : typeof body.size === "string"
+            ? body.size
+            : undefined,
+      seed: typeof raw.seed === "number" ? raw.seed : undefined,
+      seedSupported: raw.seed_supported === true,
+      requestId:
+        typeof raw.request_id === "string" ? raw.request_id : undefined,
+      usage: asRecord(raw.usage) ?? undefined,
+      generationDurationMs: Math.max(
+        0,
+        finiteNumber(raw.generation_duration_ms, 0),
+      ),
+      generatedAt: Math.max(
+        0,
+        finiteNumber(raw.generated_at, Date.now()),
+      ),
+      sourcePhotos: [],
+      prompt: additionalPrompt,
+      quality: quality
+        ? {
+            width: Math.max(0, finiteNumber(quality.width, 0)),
+            height: Math.max(0, finiteNumber(quality.height, 0)),
+            entropy: Math.max(0, finiteNumber(quality.entropy, 0)),
+            luminanceStddev: Math.max(
+              0,
+              finiteNumber(quality.luminance_stddev, 0),
+            ),
+            perceptualHash:
+              typeof quality.perceptual_hash === "string"
+                ? quality.perceptual_hash
+                : "",
+            warnings: Array.isArray(quality.warnings)
+              ? quality.warnings.filter(
+                  (item): item is string => typeof item === "string",
+                )
+              : [],
+          }
+        : undefined,
+    } satisfies AiPosterCandidate];
+  });
+  if (candidates.length === 0) {
+    throw new Error("AI 成片接口未返回候选详情。");
+  }
+  return {
+    generatedPhotos: generated,
+    generationDurationMs: Math.max(
+      0,
+      finiteNumber(body.generation_duration_ms, 0),
+    ),
+    metadata: {
+      aiTemplateId: aiTemplate,
+      aiTemplateLabel:
+        typeof body.ai_template_label === "string"
+          ? body.ai_template_label
+          : aiTemplate,
+      templateVersion:
+        typeof body.template_version === "string"
+          ? body.template_version
+          : "unknown",
+      aspectRatio:
+        typeof body.aspect_ratio === "string" ? body.aspect_ratio : "9:16",
+      model: typeof body.model === "string" ? body.model : "unknown",
+      size: typeof body.size === "string" ? body.size : undefined,
+      seed: typeof body.seed === "number" ? body.seed : undefined,
+      seedSupported: body.seed_supported === true,
+      requestId:
+        typeof body.request_id === "string" ? body.request_id : undefined,
+      usage: asRecord(body.usage) ?? undefined,
+      additionalPrompt,
+    },
+    candidates,
+    warnings: Array.isArray(body.warnings)
+      ? body.warnings.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [],
+  };
 }
 
 export async function generateCopy(

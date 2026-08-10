@@ -12,6 +12,7 @@ export const TEMPLATE_PRESETS = [
   { id: "vertical-v1", label: "竖版长图" },
   { id: "chalkboard-collage-v1", label: "复古手账" },
   { id: "polka-scrapbook-v1", label: "波点拼贴" },
+  { id: "ai-poster-v1", label: "AI 创意成片" },
   { id: "hand-drawn-v1", label: "手绘标注" },
   { id: "image-collage-v1", label: "图片拼接" },
 ] as const;
@@ -24,6 +25,7 @@ export const DEFAULT_TEMPLATE_ID: TemplateId = "vertical-v1";
 export function templateNeedsEmbeddedPhotos(templateId: TemplateId): boolean {
   return (
     templateId === "polka-scrapbook-v1" ||
+    templateId === "ai-poster-v1" ||
     templateId === "hand-drawn-v1" ||
     templateId === "chalkboard-collage-v1"
   );
@@ -187,6 +189,76 @@ export type DayFrameCopy = {
 /** 手绘：image=OpenAI 直接出标注图；overlay=前端 SVG 回退 */
 export type SketchRenderMode = "image" | "overlay";
 
+export type AiPosterTemplateId = "morning-ride" | "citywalk";
+
+export type AiPosterTemplateMetadata = {
+  id: AiPosterTemplateId;
+  label: string;
+  version: string;
+  aspectRatio: string;
+  description: string;
+  disclaimer: string;
+  previewUrl: string;
+};
+
+export type AiPosterMetadata = {
+  aiTemplateId: AiPosterTemplateId;
+  aiTemplateLabel: string;
+  templateVersion: string;
+  aspectRatio: string;
+  model: string;
+  size?: string;
+  seed?: number;
+  seedSupported: boolean;
+  requestId?: string;
+  usage?: Record<string, unknown>;
+  sourcePhotos: string[];
+  additionalPrompt: string;
+  versions?: AiPosterVersion[];
+  activeVersionId?: string;
+  selectedCandidateId?: string;
+  warnings?: string[];
+};
+
+export type AiPosterCandidate = {
+  id: string;
+  photoUrl: string;
+  aiTemplateId: AiPosterTemplateId;
+  aiTemplateLabel: string;
+  templateVersion: string;
+  styleId: StyleId;
+  additionalPrompt: string;
+  model: string;
+  size?: string;
+  seed?: number;
+  seedSupported: boolean;
+  requestId?: string;
+  usage?: Record<string, unknown>;
+  generationDurationMs: number;
+  generatedAt: number;
+  sourcePhotos: string[];
+  prompt: string;
+  quality?: {
+    width: number;
+    height: number;
+    entropy: number;
+    luminanceStddev: number;
+    perceptualHash: string;
+    warnings: string[];
+  };
+};
+
+export type AiPosterVersion = {
+  id: string;
+  createdAt: number;
+  aiTemplateId: AiPosterTemplateId;
+  aiTemplateLabel: string;
+  styleId: StyleId;
+  additionalPrompt: string;
+  candidates: AiPosterCandidate[];
+  selectedCandidateId: string;
+};
+
 export type DayFrameSessionV1 = {
   version: 1;
   styleId: StyleId;
@@ -208,4 +280,5 @@ export type DayFrameSessionV1 = {
   verticalBackground?: VerticalBackground;
   chalkboardBackground?: ChalkboardBackground;
   polkaBackground?: PolkaBackground;
+  aiPoster?: AiPosterMetadata;
 };

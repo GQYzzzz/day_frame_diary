@@ -1,6 +1,9 @@
 import re
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from .ai_template_config import AI_POSTER_MODE_ID, get_ai_template
 
 _STYLE_RE = re.compile(r"^(xiaohongshu|travel|literary|minimal|moments)$")
 _TEMPLATE_RE = re.compile(
@@ -52,6 +55,114 @@ class GenerateRequest(BaseModel):
             if not _FILENAME_RE.match(name):
                 raise ValueError(f"非法文件名: {name}")
         return v
+
+
+class AiPosterGenerateRequest(BaseModel):
+    template_id: Literal["ai-poster-v1"] = AI_POSTER_MODE_ID
+    style_id: str = Field(default="moments", description="文字语气风格")
+    ai_template_id: str = Field(
+        ...,
+        description="内置 AI 风格 ID，不接受文件路径",
+    )
+    filenames: list[str] = Field(..., min_length=1, max_length=9)
+    additional_prompt: str = Field(
+        default="",
+        max_length=200,
+        description="可选的画面补充要求，只会追加到后端固定提示词",
+    )
+    candidate_count: int = Field(
+        default=2,
+        ge=1,
+        le=2,
+        description="并行生成候选数，当前限制为 1–2",
+    )
+
+    @field_validator("style_id")
+    @classmethod
+    def validate_ai_style(cls, v: str) -> str:
+        if not _STYLE_RE.fullmatch(v):
+            raise ValueError("无效 style_id")
+        return v
+
+    @field_validator("ai_template_id")
+    @classmethod
+    def validate_ai_template_id(cls, v: str) -> str:
+        try:
+            return get_ai_template(v).id
+        except (ValueError, FileNotFoundError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("filenames")
+    @classmethod
+    def validate_ai_filenames(cls, v: list[str]) -> list[str]:
+        for name in v:
+            if not _FILENAME_RE.fullmatch(name):
+                raise ValueError(f"非法文件名: {name}")
+        if len(set(v)) != len(v):
+            raise ValueError("不能重复提交同一张照片")
+        return v
+
+    @field_validator("additional_prompt")
+    @classmethod
+    def normalize_additional_prompt(cls, v: str) -> str:
+        return re.sub(r"\s+", " ", v).strip()
+
+
+class AiPosterCandidateResponse(BaseModel):
+    id: str
+    url: str
+    model: str
+    size: str | None = None
+    generation_duration_ms: int = Field(..., ge=0)
+    generated_at: int = Field(..., ge=0)
+    seed: int | None = None
+    seed_supported: bool = False
+    request_id: str | None = None
+    usage: dict[str, Any] | None = None
+    quality: dict[str, Any]
+
+
+class AiPosterGenerateResponse(BaseModel):
+    template_id: Literal["ai-poster-v1"] = AI_POSTER_MODE_ID
+    style_id: str
+    ai_template_id: str
+    ai_template_label: str
+    template_version: str
+    aspect_ratio: str
+    generated_photos: list[str] = Field(..., min_length=1, max_length=2)
+    candidates: list[AiPosterCandidateResponse] = Field(
+        ...,
+        min_length=1,
+        max_length=2,
+    )
+    requested_candidate_count: int = Field(..., ge=1, le=2)
+    warnings: list[str] = Field(default_factory=list)
+    model: str
+    size: str | None = None
+    generation_duration_ms: int = Field(..., ge=0)
+    usage: dict[str, Any] | None = None
+    seed: int | None = Field(
+        default=None,
+        description="上游返回时透传；火山方舟 Seedream 5.0 Pro 当前不支持指定 seed",
+    )
+    seed_supported: bool = False
+    request_id: str | None = None
+
+
+class AiPosterTemplateMetadata(BaseModel):
+    id: str
+    label: str
+    version: str
+    aspect_ratio: str
+    description: str
+    disclaimer: str
+    preview_url: str
+
+
+class AiPosterTemplatesResponse(BaseModel):
+    template_id: Literal["ai-poster-v1"] = AI_POSTER_MODE_ID
+    label: str
+    templates: list[AiPosterTemplateMetadata]
 
 
 class OutlinePointModel(BaseModel):

@@ -2,6 +2,7 @@ import { normalizeTemplateId } from "@/lib/templates/registry";
 import { saveDayFrameSession } from "@/lib/session";
 import {
   templateNeedsEmbeddedPhotos,
+  type AiPosterMetadata,
   type ChalkboardBackground,
   type DayFrameCopy,
   type DayFrameSessionV1,
@@ -39,6 +40,7 @@ export type HistoryEntryV1 = {
   verticalBackground?: VerticalBackground;
   chalkboardBackground?: ChalkboardBackground;
   polkaBackground?: PolkaBackground;
+  aiPoster?: AiPosterMetadata;
 };
 
 function newId(): string {
@@ -118,6 +120,27 @@ async function persistCutoutAssets(
   );
 }
 
+async function persistAiPoster(
+  poster: AiPosterMetadata,
+): Promise<AiPosterMetadata> {
+  const sourcePhotos = await persistPhotosAsDataUrls(poster.sourcePhotos);
+  const versions = poster.versions
+    ? await Promise.all(
+        poster.versions.map(async (version) => ({
+          ...version,
+          candidates: await Promise.all(
+            version.candidates.map(async (candidate) => ({
+              ...candidate,
+              photoUrl: await urlToDataUrl(candidate.photoUrl),
+              sourcePhotos,
+            })),
+          ),
+        })),
+      )
+    : undefined;
+  return { ...poster, sourcePhotos, versions };
+}
+
 export function listHistoryEntries(): HistoryEntryV1[] {
   return readRaw().sort((a, b) => b.savedAt - a.savedAt);
 }
@@ -164,6 +187,7 @@ export async function addHistoryFromSession(
     verticalBackground: session.verticalBackground,
     chalkboardBackground: session.chalkboardBackground,
     polkaBackground: session.polkaBackground,
+    aiPoster: session.aiPoster,
   };
 
   writeWithEviction([entry, ...readRaw()]);
@@ -177,6 +201,10 @@ export async function addHistoryFromSession(
         session.templateId === "polka-scrapbook-v1"
           ? await persistCutoutAssets(session.cutoutAssets)
           : session.cutoutAssets;
+      const aiPoster =
+        session.templateId === "ai-poster-v1" && session.aiPoster
+          ? await persistAiPoster(session.aiPoster)
+          : session.aiPoster;
       const entries = readRaw();
       const index = entries.findIndex((item) => item.id === id);
       if (index >= 0) {
@@ -184,6 +212,7 @@ export async function addHistoryFromSession(
           ...entries[index],
           photos,
           cutoutAssets,
+          aiPoster,
         };
         const withoutCurrent = entries.filter((item) => item.id !== id);
         const written = writeWithEviction([enriched, ...withoutCurrent]);
@@ -201,6 +230,7 @@ export async function addHistoryFromSession(
 
 /** 更新当前正在编辑的历史条目（结果页改字 / 换模板时） */
 export function updateCurrentHistoryEntry(patch: {
+  photos?: string[];
   copy?: DayFrameCopy;
   templateId?: TemplateId;
   layoutSeed?: number;
@@ -211,6 +241,7 @@ export function updateCurrentHistoryEntry(patch: {
   verticalBackground?: VerticalBackground;
   chalkboardBackground?: ChalkboardBackground;
   polkaBackground?: PolkaBackground;
+  aiPoster?: AiPosterMetadata;
 }): void {
   const id = getCurrentHistoryId();
   if (!id) return;
@@ -269,6 +300,7 @@ export function openHistoryEntry(id: string): boolean {
     verticalBackground: entry.verticalBackground,
     chalkboardBackground: entry.chalkboardBackground,
     polkaBackground: entry.polkaBackground,
+    aiPoster: entry.aiPoster,
   };
   saveDayFrameSession(session);
   setCurrentHistoryId(id);

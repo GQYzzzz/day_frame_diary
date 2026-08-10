@@ -25,7 +25,12 @@ export function ProcessingOverlay({
   templateId?: TemplateId;
 }) {
   const { title, hint } =
-    phase === "generating" && templateId === "hand-drawn-v1"
+    phase === "generating" && templateId === "ai-poster-v1"
+      ? {
+          title: "Seedream 正在并行生成 2 张候选…",
+          hint: "AI 会重新组织并绘制两张 9:16 海报，通常需要 2～5 分钟。请勿关闭页面。",
+        }
+      : phase === "generating" && templateId === "hand-drawn-v1"
       ? {
           title: "AI 正在写文案并绘制手绘标注…",
           hint: "官方 gpt-image-2 绘制定图，每张约 1～3 分钟。请勿关闭页面。",

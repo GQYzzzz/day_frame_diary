@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType, Ref } from "react";
+import { AiPosterTemplate } from "@/components/templates/ai-poster-template";
 import { ChalkboardCollageTemplate } from "@/components/templates/chalkboard/chalkboard-collage-template";
 import { HandDrawnDiaryTemplate } from "@/components/templates/hand-drawn/hand-drawn-diary-template";
 import { ImageCollageTemplate } from "@/components/templates/image-collage-template";
@@ -63,6 +64,13 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateEntry> = {
     previewWidth: 390,
     exportBackground: "#c8c6c2",
     Component: PolkaScrapbookTemplate,
+  },
+  "ai-poster-v1": {
+    id: "ai-poster-v1",
+    label: "AI 创意成片",
+    previewWidth: 390,
+    exportBackground: "#111715",
+    Component: AiPosterTemplate,
   },
   "hand-drawn-v1": {
     id: "hand-drawn-v1",

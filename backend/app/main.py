@@ -13,9 +13,27 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from openai import APITimeoutError, OpenAIError
 
+from app.ai_poster_service import generate_ai_poster_from_uploads
+from app.ai_template_config import (
+    AI_POSTER_MODE_ID,
+    AI_POSTER_MODE_LABEL,
+    ai_template_public_metadata,
+    get_ai_template,
+)
 from app.cutout_service import generate_cutout_assets
 from app.generate_copy import generate_dayframe_copy
-from app.schemas import GenerateRequest
+from app.schemas import (
+    AiPosterGenerateRequest,
+    AiPosterGenerateResponse,
+    AiPosterTemplatesResponse,
+    GenerateRequest,
+)
+from app.seedream_client import (
+    SeedreamApiError,
+    SeedreamConfigurationError,
+    SeedreamInputError,
+    SeedreamTimeoutError,
+)
 from app.sketch_image import (
     SketchAnnotateError,
     annotate_sketch_photos,
@@ -172,6 +190,111 @@ async def upload_images(
         )
 
     return {"items": items}
+
+
+@app.get(
+    "/api/v1/ai-posters/templates",
+    response_model=AiPosterTemplatesResponse,
+)
+def list_ai_poster_templates() -> dict[str, Any]:
+    return {
+        "template_id": AI_POSTER_MODE_ID,
+        "label": AI_POSTER_MODE_LABEL,
+        "templates": ai_template_public_metadata(),
+    }
+
+
+@app.get("/api/v1/ai-posters/templates/{template_id}/preview")
+def get_ai_poster_template_preview(template_id: str) -> FileResponse:
+    try:
+        template = get_ai_template(template_id)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    return FileResponse(template.reference_path)
+
+
+@app.post(
+    "/api/v1/ai-posters/generate",
+    response_model=AiPosterGenerateResponse,
+)
+async def generate_ai_poster_endpoint(
+    req: AiPosterGenerateRequest,
+) -> AiPosterGenerateResponse:
+    try:
+        result = await asyncio.to_thread(
+            generate_ai_poster_from_uploads,
+            UPLOAD_DIR,
+            req.filenames,
+            req.ai_template_id,
+            req.style_id,
+            req.additional_prompt,
+            req.candidate_count,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"找不到已上传文件: {exc.args[0]}，请重新上传",
+        ) from exc
+    except SeedreamInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SeedreamConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SeedreamTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"{exc}。可减少图片张数、增大 SEEDREAM_TIMEOUT，"
+                "或检查火山方舟服务状态。"
+            ),
+        ) from exc
+    except SeedreamApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI 成片生成失败: {type(exc).__name__}: {exc}",
+        ) from exc
+    return AiPosterGenerateResponse(
+        template_id=result.template_id,
+        style_id=result.style_id,
+        ai_template_id=result.ai_template_id,
+        ai_template_label=result.ai_template_label,
+        template_version=result.template_version,
+        aspect_ratio=result.aspect_ratio,
+        generated_photos=result.generated_photos,
+        model=result.model,
+        size=result.size,
+        generation_duration_ms=result.generation_duration_ms,
+        usage=result.usage,
+        seed=result.seed,
+        seed_supported=result.seed_supported,
+        request_id=result.request_id,
+        candidates=[
+            {
+                "id": candidate.id,
+                "url": candidate.url,
+                "model": candidate.model,
+                "size": candidate.size,
+                "generation_duration_ms": candidate.generation_duration_ms,
+                "generated_at": candidate.generated_at,
+                "seed": candidate.seed,
+                "seed_supported": candidate.seed_supported,
+                "request_id": candidate.request_id,
+                "usage": candidate.usage,
+                "quality": {
+                    "width": candidate.quality.width,
+                    "height": candidate.quality.height,
+                    "entropy": candidate.quality.entropy,
+                    "luminance_stddev": candidate.quality.luminance_stddev,
+                    "perceptual_hash": candidate.quality.perceptual_hash,
+                    "warnings": candidate.quality.warnings,
+                },
+            }
+            for candidate in result.candidates
+        ],
+        requested_candidate_count=result.requested_candidate_count,
+        warnings=result.warnings,
+    )
 
 
 async def _generate_hand_drawn(req: GenerateRequest) -> dict:

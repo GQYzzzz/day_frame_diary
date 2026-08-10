@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AiPosterResultView } from "./ai-poster-result-view";
 import { ChalkboardLayoutEditor } from "@/components/chalkboard-layout-editor";
 import { PhotoAnalysisPanel } from "@/components/photo-analysis-panel";
 import { generateCopy } from "@/lib/api-client";
@@ -200,7 +201,7 @@ function initialLayoutForSession(
   return photoCount === session.photos.length ? layout : undefined;
 }
 
-export function ResultView() {
+function StandardResultView() {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
   const session = useMemo(() => loadDayFrameSession(), []);
@@ -996,4 +997,12 @@ export function ResultView() {
       ) : null}
     </div>
   );
+}
+
+export function ResultView() {
+  const session = useMemo(() => loadDayFrameSession(), []);
+  if (session?.templateId === "ai-poster-v1") {
+    return <AiPosterResultView session={session} />;
+  }
+  return <StandardResultView />;
 }

@@ -1,0 +1,61 @@
+{
+  "cases": [
+    {
+      "id": "portrait-single",
+      "photos": ["photos/portrait.jpg"],
+      "categories": ["portrait"],
+      "template_id": "citywalk",
+      "style_id": "moments",
+      "additional_prompt": "人物作为主图，减少文字"
+    },
+    {
+      "id": "group-food-three",
+      "photos": [
+        "photos/group.jpg",
+        "photos/food.jpg",
+        "photos/object.jpg"
+      ],
+      "categories": ["group", "food"],
+      "template_id": "citywalk",
+      "style_id": "xiaohongshu"
+    },
+    {
+      "id": "architecture-night-six",
+      "photos": [
+        "photos/architecture-1.jpg",
+        "photos/architecture-2.jpg",
+        "photos/night-1.jpg",
+        "photos/night-2.jpg",
+        "photos/street.jpg",
+        "photos/detail.jpg"
+      ],
+      "categories": ["architecture", "night"],
+      "template_id": "morning-ride",
+      "style_id": "travel"
+    },
+    {
+      "id": "mixed-screen-nine",
+      "photos": [
+        "photos/screen.jpg",
+        "photos/portrait-2.jpg",
+        "photos/group-2.jpg",
+        "photos/food-2.jpg",
+        "photos/architecture-3.jpg",
+        "photos/night-3.jpg",
+        "photos/street-2.jpg",
+        "photos/object-2.jpg",
+        "photos/detail-2.jpg"
+      ],
+      "categories": [
+        "screen",
+        "portrait",
+        "group",
+        "food",
+        "architecture",
+        "night"
+      ],
+      "template_id": "citywalk",
+      "style_id": "minimal"
+    }
+  ]
+}
